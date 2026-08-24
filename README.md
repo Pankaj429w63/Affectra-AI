@@ -8,10 +8,10 @@
 
 **Affectra AI** is an end-to-end multimodal emotion intelligence system built for research and production use. It combines state-of-the-art deep learning models across three modalities — natural language, speech acoustics, and facial/visual features — to deliver nuanced emotion understanding beyond what single-modality systems can achieve.
 
-The platform is designed around the **MELD** (Multimodal EmotionLines Dataset) benchmark and targets both:
+The platform is trained on the **MELD** (Multimodal EmotionLines Dataset) benchmark and targets both:
 
-- **7-class emotion recognition** — Anger, Disgust, Fear, Joy, Neutral, Sadness, Surprise
-- **3-class sentiment analysis** — Positive, Negative, Neutral
+- **7-class emotion recognition** — anger, disgust, fear, joy, neutral, sadness, surprise
+- **3-class sentiment analysis** — positive, negative, neutral
 
 ---
 
@@ -19,18 +19,26 @@ The platform is designed around the **MELD** (Multimodal EmotionLines Dataset) b
 
 ```
 Affectra-AI/
-├── backend/              # Inference API service (FastAPI / Flask)
-├── frontend/             # Web application UI
+├── backend/              # FastAPI inference service
+├── frontend/             # React + Vite web application
 ├── training/
-│   ├── src/              # Modular training pipeline (models, data, trainers)
-│   └── notebooks/        # EDA, experiments, and visualisation notebooks
-├── models/               # Model checkpoints — git-ignored, managed externally
+│   ├── src/              # Modular training pipeline (encoders, fusion, trainer)
+│   └── notebooks/        # Google Colab training notebooks
+├── models/               # Trained artifacts — git-ignored, managed externally
+│   └── affectra_multimodal/    # Created after training
+│       ├── model_state.pt
+│       ├── model_config.json
+│       ├── emotion_labels.json
+│       ├── sentiment_labels.json
+│       ├── metrics.json
+│       └── text_encoder/
+├── data/                 # Datasets — git-ignored, Colab only, never local
 │   └── .gitkeep
-├── data/                 # Datasets — git-ignored, never committed
-│   └── .gitkeep
-├── docs/                 # Architecture docs and design notes
-│   └── MIGRATION_PLAN.md
-├── scripts/              # Setup, download, and export utilities
+├── docs/
+│   ├── MIGRATION_PLAN.md
+│   ├── SYSTEM_DESIGN.md
+│   └── TRAINING_ARCHITECTURE.md
+├── scripts/              # Setup and utility scripts
 ├── .env.example          # Environment variable template (safe placeholders only)
 ├── .gitignore
 ├── README.md
@@ -39,32 +47,46 @@ Affectra-AI/
 
 ---
 
-## Tech Stack (Planned)
+## Tech Stack
 
 | Layer | Technology |
 |---|---|
 | **Language** | Python 3.11+ |
 | **ML Framework** | PyTorch 2.x |
-| **Text Encoder** | BERT / RoBERTa (Hugging Face Transformers) |
-| **Audio Encoder** | Wav2Vec 2.0 / MFCC |
-| **Video Encoder** | ResNet / FaceNet |
-| **Fusion** | Cross-modal attention + LSTM context |
+| **Text Encoder** | `distilroberta-base` (Hugging Face) |
+| **Audio Encoder** | `facebook/wav2vec2-base` (Hugging Face) |
+| **Video Encoder** | `google/vit-base-patch16-224` (Hugging Face) |
+| **Fusion Model** | Gated Multimodal Fusion Network (custom, ~594K params) |
 | **Backend API** | FastAPI |
-| **Frontend** | React / Next.js |
-| **Experiment Tracking** | Weights & Biases / MLflow |
+| **Frontend** | React + Vite |
+| **Training Environment** | Google Colab (free GPU) |
 | **Dataset** | MELD (Multimodal EmotionLines Dataset) |
+| **Frontend Hosting** | Vercel |
+| **Backend Hosting** | Render |
+| **Auth + Database** | Supabase |
+
+---
+
+## Documentation
+
+| Document | Description |
+|---|---|
+| [`docs/MIGRATION_PLAN.md`](docs/MIGRATION_PLAN.md) | Repository migration from old prototype to new scaffold |
+| [`docs/SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md) | Complete system architecture, API contract, deployment topology |
+| [`docs/TRAINING_ARCHITECTURE.md`](docs/TRAINING_ARCHITECTURE.md) | ML model design, encoder specs, Colab training workflow |
 
 ---
 
 ## Getting Started
 
-> **Note:** The application is not yet implemented. This repository is currently in the scaffold phase. Implementation will follow iteratively.
+> **Note:** The application is not yet implemented. This repository is in the architecture/design phase. Implementation will follow iteratively.
 
 ### Prerequisites
 
 - Python 3.11+
-- Node.js 18+ (for frontend)
+- Node.js 18+ (for frontend, when implemented)
 - Git
+- Google account (for Colab training)
 
 ### Setup
 
@@ -75,7 +97,28 @@ cd Affectra-AI
 
 # Copy env template and fill in your values
 cp .env.example .env
+# Edit .env with your actual values — NEVER commit this file
 ```
+
+---
+
+## Training
+
+> The MELD dataset (~11 GB) is **never downloaded locally**. Training runs on Google Colab, which downloads the dataset directly into Colab storage.
+
+Training is conducted in 9 phases via the notebook at `training/notebooks/affectra_train.ipynb`:
+
+1. Validate dataset
+2. 100-sample smoke test
+3. Extract & cache text features (DistilRoBERTa)
+4. Extract & cache audio features (Wav2Vec2)
+5. Extract & cache video features (ViT)
+6. Train fusion model on cached features
+7. Evaluate on dev split
+8. Final test evaluation (once only)
+9. Export inference artifacts
+
+See [`docs/TRAINING_ARCHITECTURE.md`](docs/TRAINING_ARCHITECTURE.md) for full details.
 
 ---
 
@@ -84,12 +127,6 @@ cp .env.example .env
 Copy `.env.example` to `.env` and populate with your own values. **Never commit `.env`.**
 
 See [`.env.example`](.env.example) for all required variables.
-
----
-
-## Documentation
-
-- [`docs/MIGRATION_PLAN.md`](docs/MIGRATION_PLAN.md) — Repository migration and cleanup plan
 
 ---
 
@@ -104,7 +141,9 @@ This project is licensed under the **MIT License** — see the [`LICENSE`](LICEN
 | Component | Status |
 |---|---|
 | Repository scaffold | ✅ Complete |
-| Training pipeline | 🔲 Planned |
-| Backend API | 🔲 Planned |
-| Frontend UI | 🔲 Planned |
-| Model training (MELD) | 🔲 Planned |
+| System design documentation | ✅ Complete |
+| Training architecture documentation | ✅ Complete |
+| Training notebook (Colab) | 🔲 Planned |
+| Backend API (FastAPI) | 🔲 Planned |
+| Frontend UI (React + Vite) | 🔲 Planned |
+| Model training on MELD | 🔲 Planned |
