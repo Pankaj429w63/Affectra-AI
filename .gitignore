@@ -30,10 +30,18 @@ datasets/
 # MODEL WEIGHTS & CHECKPOINTS — large binary files, managed externally
 # ---------------------------------------------------------------------------
 models/*.pt
+models/**/*.pt
 models/*.pth
+models/**/*.pth
 models/*.onnx
+models/**/*.onnx
 models/*.bin
+models/**/*.bin
 models/*.safetensors
+models/**/*.safetensors
+# Keep .gitkeep files so empty directories are tracked
+!models/.gitkeep
+!models/**/.gitkeep
 checkpoints/
 *.ckpt
 *.h5

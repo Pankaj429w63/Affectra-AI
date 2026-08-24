@@ -1,0 +1,45 @@
+# Affectra AI — Colab Training Dependencies
+# ==========================================
+# Install inside Google Colab with:
+#   !pip install -r training/requirements-colab.txt
+#
+# Pinned versions ensure reproducibility on Colab's Python 3.10/3.11 runtime.
+# Do NOT install these on your local Windows machine (11 GB MELD dataset
+# and GPU memory requirements make local training impractical).
+
+# ── Core ML ──────────────────────────────────────────────────────────────
+torch>=2.1.0
+torchvision>=0.16.0
+torchaudio>=2.1.0
+
+# ── Hugging Face Transformers ─────────────────────────────────────────────
+# Provides: AutoTokenizer, AutoModel, Wav2Vec2Processor, Wav2Vec2Model,
+#           ViTImageProcessor, ViTModel
+transformers>=4.36.0
+tokenizers>=0.15.0
+huggingface-hub>=0.20.0
+safetensors>=0.4.0
+accelerate>=0.25.0
+
+# ── Audio Processing ──────────────────────────────────────────────────────
+# soundfile: read WAV files extracted by FFmpeg (more robust than librosa for short clips)
+# librosa:   fallback resampling
+soundfile>=0.12.1
+librosa>=0.10.1
+
+# ── Video Processing ──────────────────────────────────────────────────────
+# opencv-python-headless: decode video frames without GUI
+opencv-python-headless>=4.8.0.76
+
+# ── Data Science ─────────────────────────────────────────────────────────
+numpy>=1.24.0
+pandas>=2.0.0
+scikit-learn>=1.3.0
+
+# ── Utilities ─────────────────────────────────────────────────────────────
+tqdm>=4.66.0
+
+# ── NOT included (pre-installed in Colab or loaded from HuggingFace Hub) ──
+# FFmpeg       — pre-installed in Colab (used via subprocess)
+# sentencepiece — required by some tokenizers; install separately if needed:
+#                !pip install sentencepiece
