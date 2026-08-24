@@ -71,18 +71,54 @@ def download_meld_archive(force: bool = False) -> str:
         return MELD_ARCHIVE_PATH
 
     logger.info(f"Downloading MELD archive from: {MELD_RAW_URL}")
+    
+    # Verify URL before downloading
+    logger.info("Verifying download URL...")
+    curl_check = subprocess.run(
+        ["curl", "-I", "-L", "-s", "-w", "%{http_code}", "-o", os.devnull, MELD_RAW_URL],
+        capture_output=True,
+        text=True
+    )
+    status_code = curl_check.stdout.strip()
+    if not status_code.startswith("2"):
+        raise RuntimeError(
+            f"URL validation failed. Expected HTTP 200 OK, got HTTP {status_code} "
+            f"for URL: {MELD_RAW_URL}"
+        )
+
     logger.info("This is ~11 GB — please be patient (may take 10–20 minutes).")
 
+    part_path = MELD_ARCHIVE_PATH + ".part"
+    if os.path.exists(part_path):
+        os.remove(part_path)
+
     result = subprocess.run(
-        ["wget", "-q", "--show-progress", "-O", MELD_ARCHIVE_PATH, MELD_RAW_URL],
+        ["wget", "-q", "--show-progress", "-O", part_path, MELD_RAW_URL],
         check=False,
     )
 
     if result.returncode != 0:
+        if os.path.exists(part_path):
+            os.remove(part_path)
         raise RuntimeError(
             f"wget failed with return code {result.returncode}. "
             "Check your internet connection and the download URL."
         )
+
+    if not os.path.exists(part_path) or os.path.getsize(part_path) == 0:
+        if os.path.exists(part_path):
+            os.remove(part_path)
+        raise RuntimeError("Download failed: The resulting archive is empty (0 bytes).")
+        
+    logger.info("Verifying archive integrity...")
+    try:
+        with tarfile.open(part_path, "r:gz") as tar:
+            tar.next()
+    except Exception as e:
+        os.remove(part_path)
+        raise RuntimeError(f"Download failed: The archive is corrupted or not a valid tar.gz file. Error: {e}")
+        
+    os.rename(part_path, MELD_ARCHIVE_PATH)
 
     size_gb = os.path.getsize(MELD_ARCHIVE_PATH) / (1024 ** 3)
     logger.info(f"Download complete: {MELD_ARCHIVE_PATH} ({size_gb:.2f} GB)")

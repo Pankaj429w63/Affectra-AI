@@ -186,7 +186,7 @@ TEXT_ENCODER_SUBDIR: str = "text_encoder"
 # ---------------------------------------------------------------------------
 
 # Primary download URL (official MELD release)
-MELD_RAW_URL: str = "https://affective-meld.github.io/resources/MELD.Raw.tar.gz"
+MELD_RAW_URL: str = "http://web.eecs.umich.edu/~mihalcea/downloads/MELD.Raw.tar.gz"
 
 # Official annotation repository (for CSV files)
 MELD_ANNOTATION_REPO: str = "https://github.com/declare-lab/MELD.git"
