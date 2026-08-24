@@ -1,7 +1,0 @@
-torch
-numpy
-scikit-learn
-tqdm
-transformers
-pandas
-tensorboardX
