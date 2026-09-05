@@ -20,13 +20,13 @@ import os
 import subprocess
 import tarfile
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional, Tuple
 
 from training.src.config import (
     COLAB_DATA_DIR,
     MELD_ANNOTATION_REPO,
     MELD_DEV_CSV,
-    MELD_RAW_URL,
+    MELD_RAW_URLS,
     MELD_TEST_CSV,
     MELD_TRAIN_CSV,
 )
@@ -41,6 +41,10 @@ logger = get_logger(__name__)
 MELD_ARCHIVE_PATH = "/content/MELD.Raw.tar.gz"
 MELD_ANNOTATION_DIR = "/content/MELD_annotations"
 
+# The real archive is ~10.13 GiB. Anything far smaller is an error page or a
+# truncated/partial download masquerading as the file — reject it.
+MELD_MIN_ARCHIVE_BYTES = 1_000_000_000  # 1 GB floor
+
 # Required annotation CSV filenames
 REQUIRED_CSVS = [MELD_TRAIN_CSV, MELD_DEV_CSV, MELD_TEST_CSV]
 
@@ -49,10 +53,82 @@ REQUIRED_CSVS = [MELD_TRAIN_CSV, MELD_DEV_CSV, MELD_TEST_CSV]
 # Download Functions
 # ---------------------------------------------------------------------------
 
+def _validate_url(url: str) -> Tuple[bool, str]:
+    """
+    HEAD-check a URL, following redirects, and return (ok, status_code).
+
+    ok is True only for a 2xx final status. A connection failure (DNS, refused,
+    timeout, TLS) surfaces as curl's HTTP 000, which is treated as not-ok.
+    """
+    try:
+        curl_check = subprocess.run(
+            ["curl", "-I", "-L", "-s", "-w", "%{http_code}", "-o", os.devnull, url],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except Exception as e:  # curl missing, timeout, etc.
+        return False, f"curl-error ({e})"
+
+    status_code = (curl_check.stdout or "").strip() or "000"
+    return status_code.startswith("2"), status_code
+
+
+def _download_from_mirror(url: str, part_path: str) -> Tuple[bool, str]:
+    """
+    Attempt a full download from a single mirror into part_path.
+
+    Steps: validate URL → wget to part_path → check size floor → verify it is a
+    readable .tar.gz. Returns (success, error_message). On failure the partial
+    file is removed so the next mirror starts clean.
+    """
+    logger.info("  Verifying download URL...")
+    ok, status = _validate_url(url)
+    if not ok:
+        return False, f"URL validation failed (HTTP {status})"
+
+    if os.path.exists(part_path):
+        os.remove(part_path)
+
+    logger.info("  Validated. Downloading ~10.1 GB — this may take 10–20 minutes...")
+    result = subprocess.run(
+        ["wget", "-q", "--show-progress", "-O", part_path, url],
+        check=False,
+    )
+    if result.returncode != 0:
+        if os.path.exists(part_path):
+            os.remove(part_path)
+        return False, f"wget failed (return code {result.returncode})"
+
+    if not os.path.exists(part_path):
+        return False, "download produced no file"
+
+    size = os.path.getsize(part_path)
+    if size < MELD_MIN_ARCHIVE_BYTES:
+        os.remove(part_path)
+        return False, (
+            f"downloaded file is only {size / (1024 ** 2):.1f} MB — far below the "
+            f"~10.1 GB archive (likely an error page or truncated download)"
+        )
+
+    logger.info("  Verifying archive integrity...")
+    try:
+        with tarfile.open(part_path, "r:gz") as tar:
+            tar.next()
+    except Exception as e:
+        os.remove(part_path)
+        return False, f"archive is corrupt or not a valid tar.gz ({e})"
+
+    return True, ""
+
+
 def download_meld_archive(force: bool = False) -> str:
     """
     Download the raw MELD .tar.gz archive into Colab's local storage.
-    Skips the download if the archive already exists (unless force=True).
+
+    Tries each mirror in MELD_RAW_URLS in order until one succeeds, so a single
+    unreachable host (e.g. umich returning HTTP 000 from Colab) no longer blocks
+    the pipeline. Skips the download if the archive already exists (unless force).
 
     Args:
         force: Re-download even if the archive already exists.
@@ -61,7 +137,7 @@ def download_meld_archive(force: bool = False) -> str:
         str: Path to the downloaded archive file.
 
     Raises:
-        RuntimeError: If the download fails.
+        RuntimeError: If every mirror fails.
     """
     if os.path.exists(MELD_ARCHIVE_PATH) and not force:
         size_gb = os.path.getsize(MELD_ARCHIVE_PATH) / (1024 ** 3)
@@ -70,59 +146,34 @@ def download_meld_archive(force: bool = False) -> str:
         )
         return MELD_ARCHIVE_PATH
 
-    logger.info(f"Downloading MELD archive from: {MELD_RAW_URL}")
-    
-    # Verify URL before downloading
-    logger.info("Verifying download URL...")
-    curl_check = subprocess.run(
-        ["curl", "-I", "-L", "-s", "-w", "%{http_code}", "-o", os.devnull, MELD_RAW_URL],
-        capture_output=True,
-        text=True
-    )
-    status_code = curl_check.stdout.strip()
-    if not status_code.startswith("2"):
-        raise RuntimeError(
-            f"URL validation failed. Expected HTTP 200 OK, got HTTP {status_code} "
-            f"for URL: {MELD_RAW_URL}"
-        )
-
-    logger.info("This is ~11 GB — please be patient (may take 10–20 minutes).")
-
     part_path = MELD_ARCHIVE_PATH + ".part"
-    if os.path.exists(part_path):
-        os.remove(part_path)
+    errors: List[str] = []
 
-    result = subprocess.run(
-        ["wget", "-q", "--show-progress", "-O", part_path, MELD_RAW_URL],
-        check=False,
+    for i, url in enumerate(MELD_RAW_URLS, start=1):
+        logger.info(f"[mirror {i}/{len(MELD_RAW_URLS)}] {url}")
+        success, err = _download_from_mirror(url, part_path)
+        if success:
+            os.rename(part_path, MELD_ARCHIVE_PATH)
+            size_gb = os.path.getsize(MELD_ARCHIVE_PATH) / (1024 ** 3)
+            logger.info(
+                f"Download complete (mirror {i}): {MELD_ARCHIVE_PATH} "
+                f"({size_gb:.2f} GB)"
+            )
+            return MELD_ARCHIVE_PATH
+
+        logger.warning(f"  Mirror {i} failed: {err} — trying next mirror.")
+        errors.append(f"[{i}] {url} → {err}")
+
+    # Every mirror failed — do NOT create a fake/empty file; fail loudly.
+    detail = "\n  ".join(errors)
+    raise RuntimeError(
+        "All MELD download mirrors failed:\n  "
+        f"{detail}\n"
+        "Check Colab's network access and try again. If the problem persists, "
+        "download MELD.Raw.tar.gz manually (e.g. from "
+        "https://huggingface.co/datasets/declare-lab/MELD) and place it at "
+        f"{MELD_ARCHIVE_PATH}."
     )
-
-    if result.returncode != 0:
-        if os.path.exists(part_path):
-            os.remove(part_path)
-        raise RuntimeError(
-            f"wget failed with return code {result.returncode}. "
-            "Check your internet connection and the download URL."
-        )
-
-    if not os.path.exists(part_path) or os.path.getsize(part_path) == 0:
-        if os.path.exists(part_path):
-            os.remove(part_path)
-        raise RuntimeError("Download failed: The resulting archive is empty (0 bytes).")
-        
-    logger.info("Verifying archive integrity...")
-    try:
-        with tarfile.open(part_path, "r:gz") as tar:
-            tar.next()
-    except Exception as e:
-        os.remove(part_path)
-        raise RuntimeError(f"Download failed: The archive is corrupted or not a valid tar.gz file. Error: {e}")
-        
-    os.rename(part_path, MELD_ARCHIVE_PATH)
-
-    size_gb = os.path.getsize(MELD_ARCHIVE_PATH) / (1024 ** 3)
-    logger.info(f"Download complete: {MELD_ARCHIVE_PATH} ({size_gb:.2f} GB)")
-    return MELD_ARCHIVE_PATH
 
 
 def extract_meld_archive(archive_path: str, force: bool = False) -> str:

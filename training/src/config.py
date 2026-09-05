@@ -185,12 +185,21 @@ TEXT_ENCODER_SUBDIR: str = "text_encoder"
 # MELD Archive Download
 # ---------------------------------------------------------------------------
 
-# Primary download URL (official MELD release).
-# Use https:// directly: the http:// form 301-redirects to https, which some
-# tools log as an "HTTP 301 error" even though the download itself succeeds.
-# Verified alternative mirror (identical ~10.13 GB file) if the primary is down:
-#   https://huggingface.co/datasets/declare-lab/MELD/resolve/main/MELD.Raw.tar.gz
-MELD_RAW_URL: str = "https://web.eecs.umich.edu/~mihalcea/downloads/MELD.Raw.tar.gz"
+# Download mirrors, tried IN ORDER until one succeeds (see download.py).
+# Both serve the byte-identical archive — verified live: Content-Length
+# 10,878,146,150 bytes (~10.13 GiB) and gzip magic 1f8b on each.
+#
+# HuggingFace is listed FIRST because it is a reliable CDN reachable from Colab.
+# The umich host is kept as a backup: it intermittently refuses connections from
+# Colab (curl returns HTTP 000 — a connection failure, not a real HTTP status),
+# which is exactly why a single-URL download was fragile.
+MELD_RAW_URLS: List[str] = [
+    "https://huggingface.co/datasets/declare-lab/MELD/resolve/main/MELD.Raw.tar.gz",
+    "https://web.eecs.umich.edu/~mihalcea/downloads/MELD.Raw.tar.gz",
+]
+
+# Backward-compatible alias — the primary (first) mirror.
+MELD_RAW_URL: str = MELD_RAW_URLS[0]
 
 # Official annotation repository (for CSV files)
 MELD_ANNOTATION_REPO: str = "https://github.com/declare-lab/MELD.git"
