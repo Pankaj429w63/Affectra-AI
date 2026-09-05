@@ -185,8 +185,12 @@ TEXT_ENCODER_SUBDIR: str = "text_encoder"
 # MELD Archive Download
 # ---------------------------------------------------------------------------
 
-# Primary download URL (official MELD release)
-MELD_RAW_URL: str = "http://web.eecs.umich.edu/~mihalcea/downloads/MELD.Raw.tar.gz"
+# Primary download URL (official MELD release).
+# Use https:// directly: the http:// form 301-redirects to https, which some
+# tools log as an "HTTP 301 error" even though the download itself succeeds.
+# Verified alternative mirror (identical ~10.13 GB file) if the primary is down:
+#   https://huggingface.co/datasets/declare-lab/MELD/resolve/main/MELD.Raw.tar.gz
+MELD_RAW_URL: str = "https://web.eecs.umich.edu/~mihalcea/downloads/MELD.Raw.tar.gz"
 
 # Official annotation repository (for CSV files)
 MELD_ANNOTATION_REPO: str = "https://github.com/declare-lab/MELD.git"
