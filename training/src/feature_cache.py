@@ -27,7 +27,7 @@ Cache structure on Google Drive:
 """
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional, Tuple
 
 import torch
@@ -139,7 +139,7 @@ def save_features(
         "num_samples": features.shape[0],
         "shape": list(features.shape),
         "dtype": str(features.dtype),
-        "created_at": datetime.utcnow().isoformat() + "Z",
+        "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
     if sample_ids is not None:
         meta["sample_ids_head"] = sample_ids[:5]  # Store first 5 for inspection

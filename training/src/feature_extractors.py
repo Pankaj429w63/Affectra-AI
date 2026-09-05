@@ -447,5 +447,19 @@ def build_video_paths(
         paths.append(full_path if os.path.exists(full_path) else None)
 
     found = sum(1 for p in paths if p is not None)
+
+    # A directory was supplied but not a single expected .mp4 was found — the
+    # path is wrong or the videos were not extracted. Refuse to continue:
+    # otherwise audio AND video would be extracted as all-zero vectors over
+    # several hours, silently producing a text-only model that looks multimodal.
+    if found == 0 and len(df) > 0:
+        raise RuntimeError(
+            f"No videos found in '{video_dir}' for any of the {len(df)} rows "
+            f"(expected files like '{df.iloc[0]['sample_id']}.mp4'). "
+            "The video directory is wrong or the MELD videos were not extracted. "
+            "Fix the path before running feature extraction — do NOT extract "
+            "all-zero audio/video features."
+        )
+
     logger.info(f"Video paths: {found}/{len(paths)} found in {video_dir}")
     return paths

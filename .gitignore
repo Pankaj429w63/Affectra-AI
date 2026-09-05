@@ -25,6 +25,16 @@ datasets/
 # Exception: allow small fixture/sample JSON files if added intentionally
 !tests/**/*.json
 !scripts/**/*.json
+# Exception: exported model metadata is small text (model_config, labels,
+# metrics) — NOT weights. The actual weights (*.pt/*.pth/*.bin/*.safetensors)
+# stay ignored via the MODEL WEIGHTS section below. Allow these JSON artifacts
+# so a trained model can be committed and loaded by the backend/inference code.
+!models/**/*.json
+# Exception: standard JS/TS project config for the future React frontend.
+# (package.json nested inside node_modules/ stays ignored — that dir is ignored.)
+!package.json
+!package-lock.json
+!tsconfig*.json
 
 # ---------------------------------------------------------------------------
 # MODEL WEIGHTS & CHECKPOINTS — large binary files, managed externally

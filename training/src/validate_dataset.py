@@ -233,6 +233,8 @@ def validate_video_mapping(
     check_corrupt: bool = False,
     video_dir: Optional[str] = None,
     max_corrupt_checks: int = 50,
+    video_dir_provided: bool = False,
+    max_missing_pct: float = 50.0,
 ) -> Dict[str, Any]:
     """
     Verify the CSV-to-video mapping for a split.
@@ -247,6 +249,15 @@ def validate_video_mapping(
         check_corrupt:       If True, try to open a sample of videos with cv2.
         video_dir:           Directory to look up full paths for corrupt checks.
         max_corrupt_checks:  Max videos to inspect for corruption.
+        video_dir_provided:  True if a real video directory was supplied for
+                             this split. Only then is missing media treated as
+                             a hard failure — a text/annotation-only validation
+                             run (no video dir) must not be failed for this.
+        max_missing_pct:     If a video dir was provided and more than this
+                             percentage of videos are missing, the split is
+                             flagged as a CRITICAL failure (audio + video would
+                             be extracted as all-zeros, silently breaking the
+                             multimodal model).
 
     Returns:
         dict with mapping statistics.
@@ -284,6 +295,25 @@ def validate_video_mapping(
     total = len(df)
     missing_pct = (len(missing_videos) / total * 100) if total > 0 else 0
 
+    # A provided video directory that resolves almost no videos means the
+    # directory is misconfigured: audio + video would be extracted as all-zero
+    # vectors and the "multimodal" model would silently train on text only.
+    # Treat that as a hard failure so the notebook stops BEFORE the multi-hour
+    # feature extraction, instead of a warning that is easy to scroll past.
+    critical_failure = (
+        video_dir_provided and total > 0 and missing_pct > max_missing_pct
+    )
+
+    if critical_failure:
+        status = (
+            f"❌ CRITICAL — {len(missing_videos)}/{total} ({missing_pct:.1f}%) "
+            f"videos missing; audio + video would be all-zeros"
+        )
+    elif missing_videos:
+        status = f"⚠️  {len(missing_videos)} ({missing_pct:.1f}%) missing"
+    else:
+        status = "✅ All videos found"
+
     result = {
         "total_rows": total,
         "found_videos": found_count,
@@ -293,14 +323,20 @@ def validate_video_mapping(
         "corrupt_videos_checked": checked_for_corruption,
         "corrupt_videos_found": len(corrupt_videos),
         "corrupt_filenames_sample": corrupt_videos[:10],
-        "status": (
-            "✅ All videos found"
-            if not missing_videos
-            else f"⚠️  {len(missing_videos)} ({missing_pct:.1f}%) missing"
-        ),
+        "video_dir_provided": bool(video_dir_provided),
+        "critical_failure": bool(critical_failure),
+        "status": status,
     }
 
-    if missing_videos:
+    if critical_failure:
+        logger.error(
+            f"  {split}: {len(missing_videos)}/{total} videos missing "
+            f"({missing_pct:.1f}%) — this exceeds the {max_missing_pct:.0f}% "
+            f"limit. The video directory is almost certainly wrong. Audio and "
+            f"video features would be ALL ZEROS. Fix the video path before "
+            f"running feature extraction."
+        )
+    elif missing_videos:
         logger.warning(
             f"  {split}: {len(missing_videos)}/{total} videos missing "
             f"({missing_pct:.1f}%). These rows will use zero vectors."
@@ -432,6 +468,7 @@ def validate_dataset(
             split=split,
             check_corrupt=check_corrupt_videos,
             video_dir=video_dirs.get(split),
+            video_dir_provided=video_dirs.get(split) is not None,
         )
 
     # ── 9. Corrupt video detection ─────────────────────────────────────────
@@ -442,14 +479,46 @@ def validate_dataset(
 
     # ── 10. Summary ────────────────────────────────────────────────────────
     logger.info("\n[9/10] Computing overall status...")
-    any_error = any(
-        "❌" in str(v) for v in report["checks"].values()
+
+    # Per-split video coverage summary — surfaced prominently so the notebook
+    # output makes the multimodal readiness obvious at a glance.
+    vm = report["checks"]["video_mapping"]
+    critical_splits = [s for s, r in vm.items() if r.get("critical_failure")]
+    report["video_coverage_summary"] = {
+        split: {
+            "found": r["found_videos"],
+            "total": r["total_rows"],
+            "coverage_pct": round(100.0 - r["missing_pct"], 2),
+            "video_dir_provided": r["video_dir_provided"],
+            "critical_failure": r["critical_failure"],
+        }
+        for split, r in vm.items()
+    }
+    report["multimodal_ready"] = len(critical_splits) == 0 and all(
+        r["video_dir_provided"] for r in vm.values()
     )
-    report["overall_status"] = (
-        "❌ FAILED — see checks above"
-        if any_error
-        else "✅ Dataset is ready for training"
-    )
+
+    logger.info("\n  VIDEO COVERAGE (audio + video depend on these files):")
+    for split, r in vm.items():
+        coverage = 100.0 - r["missing_pct"]
+        note = "" if r["video_dir_provided"] else "  (no video dir — text only)"
+        logger.info(
+            f"    {split}: {r['found_videos']}/{r['total_rows']} found "
+            f"({coverage:.1f}% coverage){note}"
+        )
+
+    any_error = any("❌" in str(v) for v in report["checks"].values())
+
+    if critical_splits:
+        report["overall_status"] = (
+            f"❌ FAILED — video coverage too low for split(s): "
+            f"{', '.join(critical_splits)}. Audio + video would be all-zeros. "
+            f"Check the video directory paths before extracting features."
+        )
+    elif any_error:
+        report["overall_status"] = "❌ FAILED — see checks above"
+    else:
+        report["overall_status"] = "✅ Dataset is ready for training"
 
     logger.info("\n" + "=" * 60)
     logger.info(f"VALIDATION COMPLETE: {report['overall_status']}")
