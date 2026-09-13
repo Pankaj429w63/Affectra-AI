@@ -28,17 +28,29 @@ from typing import Dict, Optional, Tuple, Any
 
 import torch
 import torch.nn as nn
-from torch.cuda.amp import GradScaler, autocast
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
+
+try:
+    from torch.amp import GradScaler, autocast
+    def get_autocast(device_type="cuda"):
+        return autocast(device_type=device_type)
+    def get_scaler(device_type="cuda"):
+        return GradScaler(device_type)
+except (ImportError, TypeError):
+    from torch.cuda.amp import GradScaler, autocast
+    def get_autocast(device_type="cuda"):
+        return autocast()
+    def get_scaler(device_type="cuda"):
+        return GradScaler()
 
 from training.src.config import (
     ALPHA_EMOTION,
     BATCH_SIZE,
     BETA_SENTIMENT,
-    COLAB_CHECKPOINT_DIR,
-    COLAB_LOG_DIR,
+    DEFAULT_CHECKPOINT_DIR,
+    DEFAULT_LOG_DIR,
     EARLY_STOPPING_PATIENCE,
     LEARNING_RATE,
     LR_SCHEDULER_FACTOR,
@@ -57,7 +69,7 @@ from training.src.utils import (
     set_seed,
 )
 
-logger = get_logger(__name__, log_dir=COLAB_LOG_DIR)
+logger = get_logger(__name__, log_dir=DEFAULT_LOG_DIR)
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +183,7 @@ def train_one_epoch(
 
         # ── Forward pass (with optional AMP) ─────────────────────────────
         if scaler is not None:
-            with autocast():
+            with get_autocast(device.type):
                 emo_logits, sent_logits = model(
                     text_feat, audio_feat, video_feat,
                     text_mask, audio_mask, video_mask,
@@ -230,7 +242,7 @@ def train(
     learning_rate: float = LEARNING_RATE,
     weight_decay: float = WEIGHT_DECAY,
     patience: int = EARLY_STOPPING_PATIENCE,
-    checkpoint_dir: str = COLAB_CHECKPOINT_DIR,
+    checkpoint_dir: str = DEFAULT_CHECKPOINT_DIR,
     resume_from: Optional[str] = None,
     use_amp: bool = True,
 ) -> Dict[str, Any]:
@@ -266,13 +278,12 @@ def train(
     # ── Optimiser ──────────────────────────────────────────────────────────
     optimizer = AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
-    # ── LR Scheduler ──────────────────────────────────────────────────────
+    # ── LR Scheduler (verbose removed for PyTorch 2.2+ compatibility) ───────
     scheduler = ReduceLROnPlateau(
         optimizer,
         mode="max",
         factor=LR_SCHEDULER_FACTOR,
         patience=LR_SCHEDULER_PATIENCE,
-        verbose=True,
     )
 
     # ── Mixed Precision Scaler ─────────────────────────────────────────────
@@ -340,11 +351,15 @@ def train(
         dev_wf1 = dev_metrics["emotion"]["weighted_f1"]
 
         # ── LR schedule ────────────────────────────────────────────────────
+        old_lr = optimizer.param_groups[0]["lr"]
         scheduler.step(dev_wf1)
+        new_lr = optimizer.param_groups[0]["lr"]
+        if new_lr < old_lr:
+            logger.info(f"  📉 ReduceLROnPlateau: LR reduced from {old_lr:.2e} to {new_lr:.2e}")
 
         # ── Log epoch summary ──────────────────────────────────────────────
         elapsed = time.time() - epoch_start
-        current_lr = optimizer.param_groups[0]["lr"]
+        current_lr = new_lr
 
         epoch_summary = {
             "epoch": epoch + 1,
@@ -408,3 +423,163 @@ def train(
         f"dev emotion wF1={history['best_dev_emotion_weighted_f1']:.4f})"
     )
     return history
+
+
+def run_full_training(
+    cache_dir: Optional[str] = None,
+    checkpoint_dir: Optional[str] = None,
+    output_dir: Optional[str] = None,
+    max_epochs: int = MAX_EPOCHS,
+    batch_size: int = BATCH_SIZE,
+    learning_rate: float = LEARNING_RATE,
+    patience: int = EARLY_STOPPING_PATIENCE,
+    resume_from: Optional[str] = None,
+    export_artifacts: bool = True,
+) -> Dict[str, Any]:
+    """
+    Automated full training workflow:
+      1. Resolves MELD annotation CSVs (auto-discovering from local data or Colab)
+      2. Loads cached multimodal features (or extracts text features if not yet cached)
+      3. Builds class-weighted multi-task loss with power smoothing and label smoothing
+      4. Trains GatedMultimodalFusion with ReduceLROnPlateau, EarlyStopping, and checkpointing
+      5. Runs final test evaluation on held-out test split
+      6. Exports all model artifacts to MODEL_ARTIFACT_DIR
+    """
+    from collections import Counter
+    from training.src.config import (
+        DEFAULT_CACHE_DIR,
+        DEFAULT_CHECKPOINT_DIR,
+        DEFAULT_OUTPUT_DIR,
+        MELD_DEV_CSV,
+        MELD_TEST_CSV,
+        MELD_TRAIN_CSV,
+        MODEL_ARTIFACT_DIR,
+    )
+    from training.src.dataset import MELDCachedDataset, build_dataloader, load_meld_metadata
+    from training.src.export_model import export_all
+    from training.src.feature_cache import load_all_splits, save_features
+    from training.src.feature_extractors import TextExtractor
+    from training.src.fusion_model import build_model, build_weighted_loss
+    from training.src.utils import get_device
+
+    device = get_device()
+    cache_dir = cache_dir or DEFAULT_CACHE_DIR
+    checkpoint_dir = checkpoint_dir or DEFAULT_CHECKPOINT_DIR
+    output_dir = output_dir or DEFAULT_OUTPUT_DIR
+
+    os.makedirs(cache_dir, exist_ok=True)
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
+
+    # ── 1. Locate annotation CSVs ─────────────────────────────────────────
+    # Search common candidate locations
+    candidates = [
+        os.path.join("data", "meld_csv"),
+        os.path.join("meld_data", "MELD.Raw"),
+        "/content/meld_data/MELD.Raw",
+        "/content/MELD_annotations/data/MELD",
+        os.path.join("..", "meld_data", "MELD.Raw"),
+    ]
+    csv_root = None
+    for cand in candidates:
+        if os.path.exists(os.path.join(cand, MELD_TRAIN_CSV)):
+            csv_root = cand
+            break
+
+    if csv_root is None:
+        raise FileNotFoundError(
+            f"Could not locate MELD CSVs in any of: {candidates}. "
+            "Please ensure train_sent_emo.csv is downloaded."
+        )
+
+    logger.info(f"Loading metadata from: {csv_root}")
+    train_df = load_meld_metadata(os.path.join(csv_root, MELD_TRAIN_CSV))
+    dev_df   = load_meld_metadata(os.path.join(csv_root, MELD_DEV_CSV))
+    test_df  = load_meld_metadata(os.path.join(csv_root, MELD_TEST_CSV))
+
+    # ── 2. Load or extract features ───────────────────────────────────────
+    logger.info(f"Checking feature cache in: {cache_dir}")
+    train_text, dev_text, test_text = load_all_splits("text", cache_dir)
+    train_audio, dev_audio, test_audio = load_all_splits("audio", cache_dir)
+    train_video, dev_video, test_video = load_all_splits("video", cache_dir)
+
+    # If text features are not cached, extract and save them automatically
+    if train_text is None or dev_text is None or test_text is None:
+        logger.info("Extracting text features via DistilRoBERTa...")
+        text_extractor = TextExtractor(device=device, batch_size=32)
+        if train_text is None:
+            train_text = text_extractor.extract_batch(train_df["Utterance"].tolist())
+            save_features(train_text, "text", "train", cache_dir=cache_dir, sample_ids=train_df["sample_id"].tolist())
+        if dev_text is None:
+            dev_text = text_extractor.extract_batch(dev_df["Utterance"].tolist())
+            save_features(dev_text, "text", "dev", cache_dir=cache_dir, sample_ids=dev_df["sample_id"].tolist())
+        if test_text is None:
+            test_text = text_extractor.extract_batch(test_df["Utterance"].tolist())
+            save_features(test_text, "text", "test", cache_dir=cache_dir, sample_ids=test_df["sample_id"].tolist())
+        del text_extractor
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
+
+    logger.info("Building PyTorch DataLoaders...")
+    train_ds = MELDCachedDataset(train_df, train_text, train_audio, train_video)
+    dev_ds   = MELDCachedDataset(dev_df, dev_text, dev_audio, dev_video)
+    test_ds  = MELDCachedDataset(test_df, test_text, test_audio, test_video)
+
+    pin_mem = (device.type == "cuda")
+    train_loader = build_dataloader(train_ds, batch_size=batch_size, shuffle=True, pin_memory=pin_mem)
+    dev_loader   = build_dataloader(dev_ds, batch_size=batch_size, shuffle=False, pin_memory=pin_mem)
+    test_loader  = build_dataloader(test_ds, batch_size=batch_size, shuffle=False, pin_memory=pin_mem)
+
+    # ── 3. Model and Loss ─────────────────────────────────────────────────
+    model = build_model(device)
+    emo_counts  = dict(Counter(train_df["emotion_norm"].tolist()))
+    sent_counts = dict(Counter(train_df["sentiment_norm"].tolist()))
+    emo_crit, sent_crit, alpha, beta = build_weighted_loss(emo_counts, sent_counts, device)
+
+    # ── 4. Train ──────────────────────────────────────────────────────────
+    history = train(
+        model=model,
+        train_loader=train_loader,
+        dev_loader=dev_loader,
+        emotion_criterion=emo_crit,
+        sentiment_criterion=sent_crit,
+        device=device,
+        alpha=alpha,
+        beta=beta,
+        max_epochs=max_epochs,
+        learning_rate=learning_rate,
+        patience=patience,
+        checkpoint_dir=checkpoint_dir,
+        resume_from=resume_from,
+    )
+
+    # ── 5. Final Evaluation on Best Checkpoint ────────────────────────────
+    best_ckpt_path = os.path.join(checkpoint_dir, "checkpoint_best.pt")
+    if os.path.exists(best_ckpt_path):
+        load_checkpoint(best_ckpt_path, model, device=device)
+
+    logger.info("\nRunning final test evaluation...")
+    test_metrics = evaluate(
+        model, test_loader, device, split="test",
+        save_path=os.path.join(output_dir, "test_metrics.json"),
+    )
+
+    # ── 6. Export Artifacts ───────────────────────────────────────────────
+    if export_artifacts:
+        export_dir = MODEL_ARTIFACT_DIR
+        logger.info(f"\nExporting model artifacts to: {export_dir}")
+        export_all(
+            model=model,
+            test_metrics=test_metrics,
+            output_dir=export_dir,
+            also_save_to_drive=os.path.exists("/content/drive"),
+        )
+
+    return {
+        "history": history,
+        "test_metrics": test_metrics,
+    }
+
+
+if __name__ == "__main__":
+    run_full_training()

@@ -217,7 +217,10 @@ def load_features(
     else:
         logger.info(f"📂 Loading cache (no metadata): {pt_path}")
 
-    features = torch.load(pt_path, map_location="cpu")
+    try:
+        features = torch.load(pt_path, map_location="cpu", weights_only=False)
+    except TypeError:
+        features = torch.load(pt_path, map_location="cpu")
 
     size_mb = os.path.getsize(pt_path) / (1024 ** 2)
     logger.info(

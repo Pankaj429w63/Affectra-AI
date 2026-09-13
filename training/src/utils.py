@@ -22,6 +22,18 @@ from typing import Any, Dict, Optional
 import numpy as np
 import torch
 
+# Ensure UTF-8 output on Windows terminal to prevent charmap UnicodeEncodeError
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -271,7 +283,10 @@ def load_checkpoint(
         raise FileNotFoundError(f"Checkpoint not found: {path}")
 
     map_loc = device if device is not None else torch.device("cpu")
-    ckpt = torch.load(path, map_location=map_loc)
+    try:
+        ckpt = torch.load(path, map_location=map_loc, weights_only=False)
+    except TypeError:
+        ckpt = torch.load(path, map_location=map_loc)
 
     model.load_state_dict(ckpt["model_state_dict"])
     if optimizer is not None and "optimizer_state_dict" in ckpt:

@@ -257,7 +257,7 @@ def export_all(
     paths["metrics"]        = export_metrics(test_metrics, output_dir)
 
     # 6. Optionally mirror to Google Drive
-    if also_save_to_drive:
+    if also_save_to_drive and os.path.exists("/content/drive"):
         try:
             logger.info(f"Copying artifacts to Google Drive: {DRIVE_EXPORT_DIR}")
             if os.path.exists(DRIVE_EXPORT_DIR):

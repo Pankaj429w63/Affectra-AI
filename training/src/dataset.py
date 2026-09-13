@@ -70,7 +70,26 @@ def load_meld_metadata(
           emotion_norm, emotion_id, sentiment_norm, sentiment_id, sample_id
     """
     if not os.path.exists(csv_path):
-        raise FileNotFoundError(f"CSV not found: {csv_path}")
+        fname = os.path.basename(csv_path)
+        candidates = [
+            csv_path,
+            os.path.join("data", "MELD", "annotations", fname),
+            os.path.join("data", "meld_csv", fname),
+            os.path.join("meld_data", "MELD.Raw", fname),
+            os.path.join("/content", "meld_data", "MELD.Raw", fname),
+            os.path.join("/content", "MELD_annotations", "data", "MELD", fname),
+            os.path.join("..", "data", "MELD", "annotations", fname),
+            os.path.join("..", "data", "meld_csv", fname),
+        ]
+        found = None
+        for cand in candidates:
+            if os.path.exists(cand):
+                found = cand
+                break
+        if found:
+            csv_path = found
+        else:
+            raise FileNotFoundError(f"CSV not found: {csv_path}")
 
     df = pd.read_csv(csv_path, encoding="utf-8")
 
@@ -221,22 +240,20 @@ def build_dataloader(
     dataset: MELDCachedDataset,
     batch_size: int,
     shuffle: bool = True,
-    num_workers: int = 2,
-    pin_memory: bool = True,
+    num_workers: Optional[int] = None,
+    pin_memory: Optional[bool] = None,
 ) -> DataLoader:
     """
-    Create a PyTorch DataLoader with the appropriate settings for Colab.
+    Create a PyTorch DataLoader optimized for cached tensors.
 
-    Args:
-        dataset:     MELDCachedDataset instance.
-        batch_size:  Number of samples per batch.
-        shuffle:     Whether to shuffle (True for train, False for dev/test).
-        num_workers: Parallel data loading workers (2 is safe for Colab).
-        pin_memory:  Pin memory for faster GPU transfer (True if GPU available).
-
-    Returns:
-        Configured DataLoader.
+    Since all features are already cached in RAM, num_workers=0 avoids
+    IPC multiprocessing serialization overhead and Windows spawn hangs.
     """
+    if num_workers is None:
+        num_workers = 0
+    if pin_memory is None:
+        pin_memory = torch.cuda.is_available()
+
     return DataLoader(
         dataset,
         batch_size=batch_size,

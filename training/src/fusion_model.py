@@ -41,16 +41,43 @@ from training.src.utils import count_parameters, get_logger
 logger = get_logger(__name__)
 
 
+class ModalityProjection(nn.Module):
+    """
+    Residual projection block for a single modality feature.
+    Maps 768-dim encoder embeddings into the shared fusion space (256-dim)
+    with non-linear capacity, LayerNorm, and residual connection.
+    """
+
+    def __init__(self, in_dim: int, out_dim: int, dropout: float = 0.2):
+        super().__init__()
+        self.fc1 = nn.Linear(in_dim, out_dim)
+        self.norm1 = nn.LayerNorm(out_dim)
+        self.act = nn.GELU()
+        self.drop = nn.Dropout(dropout)
+        self.fc2 = nn.Linear(out_dim, out_dim)
+        self.norm2 = nn.LayerNorm(out_dim)
+        self.shortcut = nn.Linear(in_dim, out_dim) if in_dim != out_dim else nn.Identity()
+
+    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        res = self.shortcut(x)
+        h = self.act(self.norm1(self.fc1(x)))
+        h = self.drop(h)
+        h = self.norm2(self.fc2(h) + res)
+        return h * mask
+
+
 class GatedMultimodalFusion(nn.Module):
     """
-    Gated multimodal fusion network for emotion and sentiment classification.
+    Enhanced Context-Aware Gated Multimodal Fusion Network.
 
-    Args:
-        input_dim:      Feature dimension output by each encoder (default 768).
-        fusion_dim:     Dimension of the projected fusion space (default 256).
-        num_emotions:   Number of emotion classes (default 7).
-        num_sentiments: Number of sentiment classes (default 3).
-        dropout:        Dropout probability in fusion layer (default 0.3).
+    Features:
+      - Residual projections for each modality (prevents representation bottleneck)
+      - Cross-modal contextual gating: gate scores are conditioned on both
+        the modality's representation AND the joint multimodal context
+      - Softmax-normalized gate weights to ensure stable fusion across any combination of modalities
+      - Cross-modal interaction branch for non-linear inter-modality feature synthesis
+      - Training-time modality dropout to prevent text dominance and overfitting
+      - Bottleneck MLP task heads for emotion (7 classes) and sentiment (3 classes)
     """
 
     def __init__(
@@ -60,6 +87,7 @@ class GatedMultimodalFusion(nn.Module):
         num_emotions: int = NUM_EMOTION_CLASSES,
         num_sentiments: int = NUM_SENTIMENT_CLASSES,
         dropout: float = DROPOUT,
+        modality_dropout: float = 0.15,
     ):
         super().__init__()
 
@@ -67,30 +95,59 @@ class GatedMultimodalFusion(nn.Module):
         self.fusion_dim = fusion_dim
         self.num_emotions = num_emotions
         self.num_sentiments = num_sentiments
+        self.modality_dropout_prob = modality_dropout
 
-        # ── Modality Projections ────────────────────────────────────────────
-        # Each modality's 768-dim feature is projected to fusion_dim (256)
-        self.text_proj  = nn.Linear(input_dim, fusion_dim)
-        self.audio_proj = nn.Linear(input_dim, fusion_dim)
-        self.video_proj = nn.Linear(input_dim, fusion_dim)
+        # ── Modality Projections with Residual MLP ───────────────────────────
+        self.text_proj  = ModalityProjection(input_dim, fusion_dim, dropout)
+        self.audio_proj = ModalityProjection(input_dim, fusion_dim, dropout)
+        self.video_proj = ModalityProjection(input_dim, fusion_dim, dropout)
 
-        # ── Learned Scalar Gates ─────────────────────────────────────────────
-        # Each gate produces a [B, 1] scalar weight via sigmoid activation.
-        # The model learns which modalities are most informative.
-        self.text_gate  = nn.Linear(fusion_dim, 1)
-        self.audio_gate = nn.Linear(fusion_dim, 1)
-        self.video_gate = nn.Linear(fusion_dim, 1)
+        # ── Cross-Modal Context Gates ─────────────────────────────────────────
+        # Input to each gate is [modality_feature, global_context] (256 + 256 = 512)
+        gate_in_dim = fusion_dim * 2
+        self.text_gate = nn.Sequential(
+            nn.Linear(gate_in_dim, fusion_dim // 2),
+            nn.GELU(),
+            nn.Linear(fusion_dim // 2, 1),
+        )
+        self.audio_gate = nn.Sequential(
+            nn.Linear(gate_in_dim, fusion_dim // 2),
+            nn.GELU(),
+            nn.Linear(fusion_dim // 2, 1),
+        )
+        self.video_gate = nn.Sequential(
+            nn.Linear(gate_in_dim, fusion_dim // 2),
+            nn.GELU(),
+            nn.Linear(fusion_dim // 2, 1),
+        )
 
-        # ── Fusion Layer ─────────────────────────────────────────────────────
-        self.activation = nn.ReLU()
-        self.dropout    = nn.Dropout(p=dropout)
-        self.layer_norm = nn.LayerNorm(fusion_dim)
+        # ── Cross-Modal Interaction Branch ────────────────────────────────────
+        self.cross_proj = nn.Sequential(
+            nn.Linear(fusion_dim * 3, fusion_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(fusion_dim, fusion_dim),
+        )
 
-        # ── Task Heads ────────────────────────────────────────────────────────
-        self.emotion_head    = nn.Linear(fusion_dim, num_emotions)
-        self.sentiment_head  = nn.Linear(fusion_dim, num_sentiments)
+        # ── Fusion Regularisation ─────────────────────────────────────────────
+        self.fusion_norm = nn.LayerNorm(fusion_dim)
+        self.fusion_dropout = nn.Dropout(dropout)
 
-        # Initialise weights
+        # ── Task Heads with Bottleneck MLP ────────────────────────────────────
+        head_hidden = fusion_dim // 2
+        self.emotion_head = nn.Sequential(
+            nn.Linear(fusion_dim, head_hidden),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(head_hidden, num_emotions),
+        )
+        self.sentiment_head = nn.Sequential(
+            nn.Linear(fusion_dim, head_hidden),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(head_hidden, num_sentiments),
+        )
+
         self._init_weights()
 
     def _init_weights(self) -> None:
@@ -101,69 +158,95 @@ class GatedMultimodalFusion(nn.Module):
                 if module.bias is not None:
                     nn.init.zeros_(module.bias)
 
+    def _apply_modality_dropout(
+        self,
+        t_mask: torch.Tensor,
+        a_mask: torch.Tensor,
+        v_mask: torch.Tensor,
+    ) -> tuple:
+        """
+        Randomly drop modalities during training with probability p,
+        ensuring at least one modality remains active per sample.
+        """
+        if not self.training or self.modality_dropout_prob <= 0.0:
+            return t_mask, a_mask, v_mask
+
+        device = t_mask.device
+        b = t_mask.size(0)
+
+        # Random drop masks
+        t_keep = (torch.rand(b, 1, device=device) > self.modality_dropout_prob).float()
+        a_keep = (torch.rand(b, 1, device=device) > self.modality_dropout_prob).float()
+        v_keep = (torch.rand(b, 1, device=device) > self.modality_dropout_prob).float()
+
+        new_t = t_mask * t_keep
+        new_a = a_mask * a_keep
+        new_v = v_mask * v_keep
+
+        # Guard: if all modalities were dropped for a sample, revert to original mask
+        all_dropped = (new_t + new_a + new_v) < 0.5
+        new_t = torch.where(all_dropped, t_mask, new_t)
+        new_a = torch.where(all_dropped, a_mask, new_a)
+        new_v = torch.where(all_dropped, v_mask, new_v)
+
+        return new_t, new_a, new_v
+
     def forward(
         self,
         text_feat: torch.Tensor,    # [B, 768]
         audio_feat: torch.Tensor,   # [B, 768]
         video_feat: torch.Tensor,   # [B, 768]
-        text_mask: torch.Tensor,    # [B] or [B, 1]  — 1.0 if available
+        text_mask: torch.Tensor,    # [B] or [B, 1]
         audio_mask: torch.Tensor,   # [B] or [B, 1]
         video_mask: torch.Tensor,   # [B] or [B, 1]
     ) -> tuple:
         """
-        Forward pass through the gated fusion network.
-
-        Modality masks (0/1 floats) zero out the contribution of
-        unavailable modalities before gating. This means the gates
-        for missing modalities output 0 regardless of learned weights.
-
-        Args:
-            text_feat:    Text encoder output [B, 768].
-            audio_feat:   Audio encoder output [B, 768].
-            video_feat:   Video encoder output [B, 768].
-            text_mask:    Binary mask [B] — 1.0 if text is available.
-            audio_mask:   Binary mask [B] — 1.0 if audio is available.
-            video_mask:   Binary mask [B] — 1.0 if video is available.
-
-        Returns:
-            Tuple[Tensor, Tensor]:
-                emotion_logits    [B, 7]  — raw scores for 7 emotion classes
-                sentiment_logits  [B, 3]  — raw scores for 3 sentiment classes
+        Forward pass through the context-aware gated fusion network.
         """
-        # Ensure masks are [B, 1] for broadcasting
-        t_mask = text_mask.view(-1, 1).float()   # [B, 1]
-        a_mask = audio_mask.view(-1, 1).float()  # [B, 1]
-        v_mask = video_mask.view(-1, 1).float()  # [B, 1]
+        t_mask = text_mask.view(-1, 1).float()
+        a_mask = audio_mask.view(-1, 1).float()
+        v_mask = video_mask.view(-1, 1).float()
 
-        # ── Project each modality ─────────────────────────────────────────
-        t_proj = self.activation(self.text_proj(text_feat))    # [B, 256]
-        a_proj = self.activation(self.audio_proj(audio_feat))  # [B, 256]
-        v_proj = self.activation(self.video_proj(video_feat))  # [B, 256]
+        # Apply modality dropout in training mode to prevent text over-reliance
+        t_mask, a_mask, v_mask = self._apply_modality_dropout(t_mask, a_mask, v_mask)
 
-        # ── Compute gates ─────────────────────────────────────────────────
-        # Multiply by mask BEFORE gate so missing modalities gate stays 0
-        t_gate = torch.sigmoid(self.text_gate(t_proj * t_mask))   # [B, 1]
-        a_gate = torch.sigmoid(self.audio_gate(a_proj * a_mask))  # [B, 1]
-        v_gate = torch.sigmoid(self.video_gate(v_proj * v_mask))  # [B, 1]
+        # ── 1. Residual Projections ──────────────────────────────────────────
+        t_proj = self.text_proj(text_feat, t_mask)    # [B, 256]
+        a_proj = self.audio_proj(audio_feat, a_mask)  # [B, 256]
+        v_proj = self.video_proj(video_feat, v_mask)  # [B, 256]
 
-        # Apply mask to gate output (belt-and-suspenders)
-        t_gate = t_gate * t_mask
-        a_gate = a_gate * a_mask
-        v_gate = v_gate * v_mask
+        # ── 2. Joint Multimodal Context Summary ──────────────────────────────
+        active_counts = (t_mask + a_mask + v_mask).clamp(min=1.0)
+        context = (t_proj + a_proj + v_proj) / active_counts  # [B, 256]
 
-        # ── Gated weighted sum ────────────────────────────────────────────
-        fused = (
-            t_gate * t_proj +
-            a_gate * a_proj +
-            v_gate * v_proj
-        )  # [B, 256]
+        # ── 3. Cross-Modal Contextual Gates ──────────────────────────────────
+        t_in = torch.cat([t_proj, context], dim=-1)
+        a_in = torch.cat([a_proj, context], dim=-1)
+        v_in = torch.cat([v_proj, context], dim=-1)
 
-        # ── Normalise and regularise ──────────────────────────────────────
-        fused = self.layer_norm(self.dropout(fused))  # [B, 256]
+        t_gate = torch.sigmoid(self.text_gate(t_in)) * t_mask
+        a_gate = torch.sigmoid(self.audio_gate(a_in)) * a_mask
+        v_gate = torch.sigmoid(self.video_gate(v_in)) * v_mask
 
-        # ── Task heads ────────────────────────────────────────────────────
-        emotion_logits   = self.emotion_head(fused)    # [B, 7]
-        sentiment_logits = self.sentiment_head(fused)  # [B, 3]
+        # Normalize gate weights across active modalities
+        gate_sum = (t_gate + a_gate + v_gate).clamp(min=1e-6)
+        t_weight = t_gate / gate_sum
+        a_weight = a_gate / gate_sum
+        v_weight = v_gate / gate_sum
+
+        gated_sum = t_weight * t_proj + a_weight * a_proj + v_weight * v_proj  # [B, 256]
+
+        # ── 4. Cross-Modal Interaction Branch ────────────────────────────────
+        all_modalities = torch.cat([t_proj, a_proj, v_proj], dim=-1)           # [B, 768]
+        cross_inter = self.cross_proj(all_modalities)                          # [B, 256]
+
+        # ── 5. Dual-Branch Fusion with Residual Link ─────────────────────────
+        fused = gated_sum + cross_inter + context                              # [B, 256]
+        fused = self.fusion_norm(self.fusion_dropout(fused))
+
+        # ── 6. Task Heads ────────────────────────────────────────────────────
+        emotion_logits = self.emotion_head(fused)        # [B, 7]
+        sentiment_logits = self.sentiment_head(fused)    # [B, 3]
 
         return emotion_logits, sentiment_logits
 
@@ -177,30 +260,30 @@ class GatedMultimodalFusion(nn.Module):
         video_mask: torch.Tensor,
     ) -> dict:
         """
-        Return the gate weights for a batch (useful for debugging and
-        understanding which modalities the model relies on most).
-
-        Returns:
-            dict with keys 'text_gate', 'audio_gate', 'video_gate'
-            — each a FloatTensor [B, 1].
+        Return the normalized gate weights for a batch.
         """
         with torch.no_grad():
             t_mask = text_mask.view(-1, 1).float()
             a_mask = audio_mask.view(-1, 1).float()
             v_mask = video_mask.view(-1, 1).float()
 
-            t_proj = self.activation(self.text_proj(text_feat))
-            a_proj = self.activation(self.audio_proj(audio_feat))
-            v_proj = self.activation(self.video_proj(video_feat))
+            t_proj = self.text_proj(text_feat, t_mask)
+            a_proj = self.audio_proj(audio_feat, a_mask)
+            v_proj = self.video_proj(video_feat, v_mask)
 
-            t_gate = torch.sigmoid(self.text_gate(t_proj * t_mask)) * t_mask
-            a_gate = torch.sigmoid(self.audio_gate(a_proj * a_mask)) * a_mask
-            v_gate = torch.sigmoid(self.video_gate(v_proj * v_mask)) * v_mask
+            active_counts = (t_mask + a_mask + v_mask).clamp(min=1.0)
+            context = (t_proj + a_proj + v_proj) / active_counts
+
+            t_gate = torch.sigmoid(self.text_gate(torch.cat([t_proj, context], dim=-1))) * t_mask
+            a_gate = torch.sigmoid(self.audio_gate(torch.cat([a_proj, context], dim=-1))) * a_mask
+            v_gate = torch.sigmoid(self.video_gate(torch.cat([v_proj, context], dim=-1))) * v_mask
+
+            gate_sum = (t_gate + a_gate + v_gate).clamp(min=1e-6)
 
         return {
-            "text_gate": t_gate,
-            "audio_gate": a_gate,
-            "video_gate": v_gate,
+            "text_gate": t_gate / gate_sum,
+            "audio_gate": a_gate / gate_sum,
+            "video_gate": v_gate / gate_sum,
         }
 
 
@@ -211,12 +294,6 @@ class GatedMultimodalFusion(nn.Module):
 def build_model(device: torch.device) -> GatedMultimodalFusion:
     """
     Build and return the fusion model, move to device, and print param count.
-
-    Args:
-        device: torch.device to place the model on.
-
-    Returns:
-        GatedMultimodalFusion ready for training.
     """
     model = GatedMultimodalFusion().to(device)
     count_parameters(model)
@@ -224,7 +301,7 @@ def build_model(device: torch.device) -> GatedMultimodalFusion:
 
 
 # ---------------------------------------------------------------------------
-# Weighted Loss
+# Balanced Multi-Task Weighted Loss
 # ---------------------------------------------------------------------------
 
 def build_weighted_loss(
@@ -233,24 +310,20 @@ def build_weighted_loss(
     device: torch.device,
     alpha: float = 0.6,
     beta: float = 0.4,
+    power: float = 0.5,
+    label_smoothing: float = 0.05,
 ):
     """
-    Build class-weighted CrossEntropyLoss for both task heads.
+    Build smoothed class-weighted CrossEntropyLoss with label smoothing.
 
-    Weights are the inverse of class frequency, normalised so the mean = 1.
-    This gives under-represented classes (e.g., 'fear', 'disgust') higher
-    weight in the loss, compensating for MELD's class imbalance.
+    Uses square-root frequency weighting:
+      w_c = (total / (N_classes * count_c)) ** power
+    Normalized so that mean(w) = 1.0.
 
-    Args:
-        emotion_counts:   Dict mapping emotion label string → count.
-        sentiment_counts: Dict mapping sentiment label string → count.
-        device:           Device to place weight tensors on.
-        alpha:            Weight for the emotion loss term.
-        beta:             Weight for the sentiment loss term.
-
-    Returns:
-        Tuple[nn.CrossEntropyLoss, nn.CrossEntropyLoss, float, float]:
-          (emotion_criterion, sentiment_criterion, alpha, beta)
+    This prevents extreme loss spikes on rare classes (fear, disgust) while
+    boosting their recall, avoiding the severe underfitting on rare classes
+    caused by unweighted loss, and avoiding the optimization instability
+    caused by raw linear inverse weighting.
     """
     from training.src.config import EMOTION_LABEL2ID, SENTIMENT_LABEL2ID
 
@@ -260,20 +333,25 @@ def build_weighted_loss(
         total = sum(counts.values())
         for label, idx in label2id.items():
             count = counts.get(label, 1)
-            # Inverse frequency weight
-            weights[idx] = total / (n_classes * max(count, 1))
-        # Normalise so mean weight = 1 (keeps loss scale stable)
+            raw_w = total / (n_classes * max(count, 1))
+            weights[idx] = raw_w ** power
         weights = weights / weights.mean()
         return weights.to(device)
 
     emotion_weights   = _compute_weights(emotion_counts, EMOTION_LABEL2ID)
     sentiment_weights = _compute_weights(sentiment_counts, SENTIMENT_LABEL2ID)
 
-    emotion_criterion   = nn.CrossEntropyLoss(weight=emotion_weights)
-    sentiment_criterion = nn.CrossEntropyLoss(weight=sentiment_weights)
+    emotion_criterion = nn.CrossEntropyLoss(
+        weight=emotion_weights,
+        label_smoothing=label_smoothing,
+    )
+    sentiment_criterion = nn.CrossEntropyLoss(
+        weight=sentiment_weights,
+        label_smoothing=label_smoothing,
+    )
 
-    logger.info(f"Emotion class weights:   {emotion_weights.cpu().tolist()}")
-    logger.info(f"Sentiment class weights: {sentiment_weights.cpu().tolist()}")
+    logger.info(f"Emotion class weights:   {[round(w, 3) for w in emotion_weights.cpu().tolist()]}")
+    logger.info(f"Sentiment class weights: {[round(w, 3) for w in sentiment_weights.cpu().tolist()]}")
 
     return emotion_criterion, sentiment_criterion, alpha, beta
 

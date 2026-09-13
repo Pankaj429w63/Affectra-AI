@@ -130,7 +130,8 @@ VIDEO_FRAMES_PER_CLIP: int = 8      # Uniformly sampled frames per video
 # Fusion Model Hyperparameters
 # ---------------------------------------------------------------------------
 
-DROPOUT: float = 0.3
+DROPOUT: float = 0.2
+MODALITY_DROPOUT: float = 0.15      # Probability of dropping a modality during training to prevent text-dominance
 
 # ---------------------------------------------------------------------------
 # Training Hyperparameters
@@ -140,9 +141,11 @@ LEARNING_RATE: float = 2e-4
 WEIGHT_DECAY: float = 0.01
 BATCH_SIZE: int = 64            # Reduce to 32 if you see CUDA OOM errors
 MAX_EPOCHS: int = 30
-EARLY_STOPPING_PATIENCE: int = 5
+EARLY_STOPPING_PATIENCE: int = 7
 LR_SCHEDULER_FACTOR: float = 0.5
 LR_SCHEDULER_PATIENCE: int = 3
+LABEL_SMOOTHING: float = 0.05       # Prevents overconfidence on subjective emotion annotations
+CLASS_WEIGHT_POWER: float = 0.5    # Square-root smoothed inverse frequency to balance gradient stability & recall
 
 # Multi-task loss weights (must be positive; do not need to sum to 1)
 ALPHA_EMOTION: float = 0.6      # Weight for emotion classification loss
@@ -159,21 +162,52 @@ SMOKE_DEV_N: int = 30
 SMOKE_TEST_N: int = 30
 
 # ---------------------------------------------------------------------------
-# Colab Paths
-# All paths below are absolute paths inside Google Colab.
-# They are not valid on your local Windows machine.
+# Dynamic Environment & Path Resolution (Colab vs Local)
 # ---------------------------------------------------------------------------
+
+IS_COLAB: bool = (os.name != "nt") and (
+    os.path.exists("/content") or "google.colab" in sys.modules
+)
 
 COLAB_REPO_DIR: str = "/content/Affectra-AI"
 COLAB_DATA_DIR: str = "/content/meld_data"
 COLAB_DRIVE_ROOT: str = "/content/drive/MyDrive/AffectraAI"
-COLAB_CACHE_DIR: str = f"{COLAB_DRIVE_ROOT}/feature_cache"
-COLAB_CHECKPOINT_DIR: str = f"{COLAB_DRIVE_ROOT}/checkpoints"
-COLAB_LOG_DIR: str = f"{COLAB_DRIVE_ROOT}/logs"
-COLAB_OUTPUT_DIR: str = f"{COLAB_DRIVE_ROOT}/training_outputs"
+
+# Resolve directories based on runtime environment with environment variable overrides
+_LOCAL_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+DEFAULT_CACHE_DIR: str = os.getenv(
+    "AFFECTRA_CACHE_DIR",
+    f"{COLAB_DRIVE_ROOT}/feature_cache" if IS_COLAB and os.path.exists("/content/drive")
+    else os.path.join(_LOCAL_ROOT, "data", "feature_cache")
+)
+DEFAULT_CHECKPOINT_DIR: str = os.getenv(
+    "AFFECTRA_CHECKPOINT_DIR",
+    f"{COLAB_DRIVE_ROOT}/checkpoints" if IS_COLAB and os.path.exists("/content/drive")
+    else os.path.join(_LOCAL_ROOT, "checkpoints")
+)
+DEFAULT_LOG_DIR: str = os.getenv(
+    "AFFECTRA_LOG_DIR",
+    f"{COLAB_DRIVE_ROOT}/logs" if IS_COLAB and os.path.exists("/content/drive")
+    else os.path.join(_LOCAL_ROOT, "logs")
+)
+DEFAULT_OUTPUT_DIR: str = os.getenv(
+    "AFFECTRA_OUTPUT_DIR",
+    f"{COLAB_DRIVE_ROOT}/training_outputs" if IS_COLAB and os.path.exists("/content/drive")
+    else os.path.join(_LOCAL_ROOT, "training_outputs")
+)
+
+# Backward-compatible aliases
+COLAB_CACHE_DIR: str = DEFAULT_CACHE_DIR
+COLAB_CHECKPOINT_DIR: str = DEFAULT_CHECKPOINT_DIR
+COLAB_LOG_DIR: str = DEFAULT_LOG_DIR
+COLAB_OUTPUT_DIR: str = DEFAULT_OUTPUT_DIR
 
 # Repo-relative path for exported model artifacts (synced from Colab → Drive → here)
-MODEL_ARTIFACT_DIR: str = "./models/affectra_multimodal"
+MODEL_ARTIFACT_DIR: str = os.getenv(
+    "MODEL_DIR",
+    os.path.join(_LOCAL_ROOT, "models", "affectra_multimodal")
+)
 MODEL_STATE_FILENAME: str = "model_state.pt"
 MODEL_CONFIG_FILENAME: str = "model_config.json"
 EMOTION_LABELS_FILENAME: str = "emotion_labels.json"
@@ -230,6 +264,7 @@ def get_model_config() -> dict:
         "num_emotions": NUM_EMOTION_CLASSES,
         "num_sentiments": NUM_SENTIMENT_CLASSES,
         "dropout": DROPOUT,
+        "modality_dropout": MODALITY_DROPOUT,
         "text_encoder": TEXT_ENCODER_NAME,
         "audio_encoder": AUDIO_ENCODER_NAME,
         "video_encoder": VIDEO_ENCODER_NAME,
@@ -244,6 +279,8 @@ def get_model_config() -> dict:
             "early_stopping_patience": EARLY_STOPPING_PATIENCE,
             "alpha_emotion": ALPHA_EMOTION,
             "beta_sentiment": BETA_SENTIMENT,
+            "label_smoothing": LABEL_SMOOTHING,
+            "class_weight_power": CLASS_WEIGHT_POWER,
             "random_seed": RANDOM_SEED,
         },
     }
