@@ -2,7 +2,6 @@ import os
 import tempfile
 import torch
 from typing import Optional, List
-from training.src.feature_extractors import TextExtractor, AudioExtractor, VideoExtractor
 from training.src.utils import get_logger
 
 logger = get_logger(__name__)
@@ -12,9 +11,9 @@ class FeatureExtractionService:
 
     def __init__(self):
         self.device = torch.device("cpu")
-        self.text_extractor: Optional[TextExtractor] = None
-        self.audio_extractor: Optional[AudioExtractor] = None
-        self.video_extractor: Optional[VideoExtractor] = None
+        self.text_extractor = None
+        self.audio_extractor = None
+        self.video_extractor = None
 
     @classmethod
     def get_instance(cls) -> "FeatureExtractionService":
@@ -22,20 +21,23 @@ class FeatureExtractionService:
             cls._instance = cls()
         return cls._instance
 
-    def _get_text_extractor(self) -> TextExtractor:
+    def _get_text_extractor(self):
         if self.text_extractor is None:
+            from training.src.feature_extractors import TextExtractor
             logger.info("Initializing TextExtractor (distilroberta-base)...")
             self.text_extractor = TextExtractor(device=self.device)
         return self.text_extractor
 
-    def _get_audio_extractor(self) -> AudioExtractor:
+    def _get_audio_extractor(self):
         if self.audio_extractor is None:
+            from training.src.feature_extractors import AudioExtractor
             logger.info("Initializing AudioExtractor (facebook/wav2vec2-base)...")
             self.audio_extractor = AudioExtractor(device=self.device)
         return self.audio_extractor
 
-    def _get_video_extractor(self) -> VideoExtractor:
+    def _get_video_extractor(self):
         if self.video_extractor is None:
+            from training.src.feature_extractors import VideoExtractor
             logger.info("Initializing VideoExtractor (google/vit-base-patch16-224)...")
             self.video_extractor = VideoExtractor(device=self.device)
         return self.video_extractor
