@@ -5,147 +5,141 @@
   
   <h1>🧠 Affectra AI</h1>
   
-  <p><strong>A Production-Grade Multimodal Emotion Intelligence Platform</strong></p>
+  <p><strong>Advanced Multimodal Emotion Intelligence System</strong></p>
   
   <p>
-    <a href="https://github.com/Pankaj429w63/Affectra-AI/stargazers"><img src="https://img.shields.io/github/stars/Pankaj429w63/Affectra-AI?style=for-the-badge&color=blue" alt="Stars"></a>
-    <a href="https://github.com/Pankaj429w63/Affectra-AI/network/members"><img src="https://img.shields.io/github/forks/Pankaj429w63/Affectra-AI?style=for-the-badge&color=blue" alt="Forks"></a>
-    <a href="https://github.com/Pankaj429w63/Affectra-AI/issues"><img src="https://img.shields.io/github/issues/Pankaj429w63/Affectra-AI?style=for-the-badge&color=blue" alt="Issues"></a>
+    <a href="https://affectra-ai.vercel.app"><img src="https://img.shields.io/badge/Live_Demo-Vercel-black?style=for-the-badge&logo=vercel" alt="Live Demo"></a>
     <a href="https://github.com/Pankaj429w63/Affectra-AI/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Pankaj429w63/Affectra-AI?style=for-the-badge&color=blue" alt="License"></a>
   </p>
 </div>
 
 ---
 
-## 🌟 Overview
+## 🌟 Executive Summary
 
-**Affectra AI** is a state-of-the-art, end-to-end multimodal emotion intelligence system built for both research and production. It goes beyond simple text analysis by fusing **natural language, speech acoustics, and visual facial features** into a unified inference engine to achieve nuanced, human-level emotion and sentiment understanding.
+**Affectra AI** is a production-grade, end-to-end machine learning platform designed to interpret human emotion and sentiment through **Multimodal Fusion**. Moving beyond traditional text-only sentiment analysis, Affectra AI integrates **natural language, speech acoustics, and visual facial features** into a unified inference engine.
 
-Trained on the prestigious **MELD (Multimodal EmotionLines Dataset)** benchmark, Affectra AI precisely identifies:
-- 🎭 **7 Emotion Classes:** Anger, Disgust, Fear, Joy, Neutral, Sadness, Surprise
-- ⚖️ **3 Sentiment Classes:** Positive, Negative, Neutral
+This project demonstrates comprehensive software engineering and MLOps capabilities, encompassing custom neural network architecture, data pipeline engineering, real-time API design, responsive frontend development, Retrieval-Augmented Generation (RAG) implementation, and cloud deployment.
 
 ---
 
-## ✨ Key Features
+## 🏛️ Technical Architecture
 
-- **🗣️ Multimodal Fusion:** Dynamically learns and weights the importance of text, audio, and video inputs using a custom Gated Multimodal Fusion Network.
-- **⚡ Real-Time Inference:** Blazing fast FastAPI backend capable of processing raw media files directly into embeddings and predictions.
-- **🎨 Beautiful UI:** A highly polished, responsive React + Vite web dashboard featuring interactive charts and glassmorphic micro-animations.
-- **🧠 Explainable AI & RAG:** Integrated Retrieval-Augmented Generation (RAG) and Agentic pipelines to transparently explain *why* the model made a prediction based on knowledge bases.
-- **🔒 Production Ready:** Fully containerized with Docker, complete with Vercel and Render deployment configurations.
+Affectra AI follows a modern, decoupled microservices architecture designed for scalability and clear separation of concerns.
 
----
-
-## 🛠️ Technology Stack
-
-<div align="center">
-  <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
-  <img src="https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch">
-  <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI">
-  <img src="https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React">
-  <img src="https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white" alt="Vite">
-  <img src="https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white" alt="Tailwind CSS">
-  <img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
-</div>
-
-| Layer | Technology / Model |
-|---|---|
-| **Text Encoder** | `distilroberta-base` (Hugging Face) |
-| **Audio Encoder** | `facebook/wav2vec2-base` (Hugging Face) |
-| **Video Encoder** | `google/vit-base-patch16-224` (Hugging Face) |
-| **Fusion Model** | Custom Gated Multimodal Fusion Network (~594K params) |
-| **Backend API** | FastAPI (Python 3.11+) |
-| **Frontend** | React 18 + Vite + TailwindCSS |
-| **RAG System** | FAISS + SentenceTransformers |
+### Technology Stack
+- **Machine Learning**: PyTorch, Hugging Face Transformers, Scikit-learn
+- **Backend / API**: Python 3.11, FastAPI, Pydantic, Uvicorn
+- **Frontend / UI**: React 18, Vite, Tailwind CSS, TypeScript
+- **LLM Integration (Explainability)**: LangChain, FAISS, SentenceTransformers (`all-MiniLM-L6-v2`)
+- **Infrastructure**: Docker, Render (Backend), Vercel (Frontend), Hugging Face Hub (Artifact Storage)
 
 ---
 
-## 🏗️ Repository Structure
+## 🧠 Machine Learning Methodology
 
-```text
-Affectra-AI/
-├── backend/              # FastAPI inference service & endpoints
-├── frontend/             # React + Vite web application (Dashboard)
-├── training/             # Modular training pipeline (encoders, fusion, trainer)
-├── models/               # Trained artifacts & model checkpoints
-├── rag/                  # FAISS vectorstore and retriever logic
-├── docs/                 # System architecture and design documentation
-├── assets/               # README assets and images
-├── Dockerfile            # (backend) Production container definition
-├── render.yaml           # Render deployment configuration
-└── .env.example          # Environment variable template
-```
+The core inference engine uses a custom **Gated Multimodal Fusion Network** built in PyTorch. 
+
+### 1. Feature Extraction (Encoders)
+The system extracts high-dimensional representations from raw modalities using pre-trained foundation models:
+*   **Text (NLP):** `distilroberta-base` captures semantic meaning and syntactic structure.
+*   **Audio (Speech):** `facebook/wav2vec2-base` extracts acoustic features, prosody, and tone.
+*   **Video (Vision):** `google/vit-base-patch16-224` (Vision Transformer) identifies facial micro-expressions.
+
+### 2. Gated Multimodal Fusion
+Rather than simply concatenating embeddings, Affectra AI employs a specialized late-fusion architecture (~594K trainable parameters):
+*   **Modality-Specific Projections:** Normalizes and projects each 768-d modality embedding into a shared latent space.
+*   **Gating Mechanism:** Learns dynamic weights to calculate the relative importance of each modality per-inference (e.g., relying heavier on audio if the text is ambiguous).
+*   **Classification Heads:** Separate multi-layer perceptrons (MLPs) for Emotion (7 classes) and Sentiment (3 classes).
+
+### 3. Evaluation Metrics (MELD Dataset)
+The model was trained and rigorously evaluated on the **Multimodal EmotionLines Dataset (MELD)**. The final evaluation on the official unseen test split (2,610 samples) achieved:
+
+| Task | Accuracy | Weighted F1 | Macro F1 |
+| :--- | :--- | :--- | :--- |
+| **Sentiment (3-class)** | **66.97%** | 0.6683 | 0.6396 |
+| **Emotion (7-class)** | **59.54%** | 0.5876 | 0.3815 |
+
+*(Note: Emotion classification is notoriously difficult due to class imbalance and subjective ground truth in human communication; 59.5% accuracy represents highly competitive performance against baseline multimodal models).*
 
 ---
 
-## 🚀 Getting Started
+## 🔍 Explainable AI: RAG & Agents
 
-### Prerequisites
-- Node.js 18+
-- Python 3.11+
-- Git
+To address the "black box" nature of neural networks, Affectra AI incorporates an explainability layer:
+- **Retrieval-Augmented Generation (RAG):** Uses LangChain and FAISS to query an embedded vector database of emotional psychology and system architecture documents, providing users with context on *how* fusion models interpret specific inputs.
+- **Agentic Workflows:** Employs ReAct (Reasoning and Acting) agents to dynamically route user queries between the underlying prediction ML model and the knowledge base.
 
-### 1. Clone & Setup Environment
+---
+
+## 🔌 API Design
+
+The FastAPI backend is fully typed with Pydantic and automatically generates OpenAPI (Swagger) documentation. Key endpoints include:
+- `POST /predict/raw` - Accepts raw text strings, `.wav` audio files, and `.mp4` video files, handles feature extraction, and returns fused predictions.
+- `POST /predict` - Fast-path inference endpoint accepting pre-extracted 768-d tensors (bypasses heavy transformer loading).
+- `POST /explain` & `POST /rag` - LLM-driven endpoints for transparency and knowledge retrieval.
+- `GET /health` - Liveness probe for deployment orchestration.
+
+---
+
+## 💻 Frontend Dashboard
+
+The user interface is built with **React and Vite**, utilizing modern design principles (glassmorphism, subtle micro-animations) to create a premium experience.
+- **State Management:** Custom React Context providers for global API state and prediction history.
+- **Responsive Routing:** React Router DOM handles SPA navigation across Dashboard, Analysis, Explanation, and RAG Knowledge views.
+- **API Client:** A robust, strongly-typed HTTP client handles error boundaries, timeout management, and seamless multipart-form data uploads for media files.
+
+---
+
+## 🚀 Deployment & CI/CD
+
+Affectra AI utilizes a strict deployment topology that prevents repository bloat while ensuring secure, reproducible builds:
+- **Frontend (Vercel):** Deployed at [affectra-ai.vercel.app](https://affectra-ai.vercel.app) with automated CI/CD upon pushes to the `main` branch.
+- **Backend (Render):** Containerized via Docker and deployed as a web service. 
+- **Artifact Management:** Production weights (`model.pt`) and the FAISS vector index are explicitly `.gitignore`'d. During the Docker build process, an initialization script securely downloads the exact production artifacts from a private Hugging Face repository using scoped access tokens.
+
+---
+
+## ⚠️ Production Limitations (Render Free Tier)
+
+**Important Note for Reviewers/Evaluators:**
+The live backend is currently hosted on Render's Free Tier, which imposes a strict **512 MB memory (RAM)** limit. 
+
+Loading the raw feature extraction foundation models (`DistilRoBERTa` + `Wav2Vec2` + `ViT`) requires approximately ~400MB+ of memory overhead. While the system implements aggressive "lazy loading" to boot successfully, invoking the **`POST /predict/raw`** endpoint (i.e., clicking "Analyze Emotion & Sentiment" in the UI) triggers an Out-Of-Memory (OOM) exception on the container, resulting in a temporary `502 Bad Gateway` error while Render reboots the service.
+
+The `/predict` endpoint, RAG system, and core API logic function perfectly within the memory constraints. Full multimodal raw extraction requires upgrading the host to a plan with at least 2GB of RAM.
+
+---
+
+## 🛡️ Security & Testing
+
+- **Testing:** Comprehensive test suites using `pytest` cover API routing, ML prediction logic, RAG retrieval accuracy, and mock-integration tests.
+- **Security:** Strict separation of environment variables. Production secrets (Hugging Face tokens, LLM API keys) are injected exclusively via Vercel/Render dashboards and never exposed in the source code.
+- **Responsible AI:** The model was trained entirely on the public MELD dataset (derived from television dialogue). No proprietary, personally identifiable, or real-world surveillance data was used.
+
+---
+
+## 🏁 Getting Started Locally
+
+To run the full stack locally with sufficient RAM:
+
 ```bash
+# 1. Clone the repository
 git clone https://github.com/Pankaj429w63/Affectra-AI.git
 cd Affectra-AI
 
-# Create environment file
-cp .env.example .env
-```
-
-### 2. Start the Backend (FastAPI)
-```bash
-# Create and activate virtual environment
+# 2. Start the Backend
 python -m venv .venv
-source .venv/bin/activate  # On Windows use: .venv\Scripts\activate
-
-# Install dependencies
+source .venv/bin/activate
 pip install -r backend/requirements.txt
+# (Ensure Hugging Face token is exported if downloading models)
+uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 
-# Start the server (runs on http://localhost:8000)
-uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-### 3. Start the Frontend (React + Vite)
-```bash
+# 3. Start the Frontend
 cd frontend
-
-# Install dependencies
 npm install
-
-# Start development server (runs on http://localhost:5173)
 npm run dev
 ```
-
----
-
-## 📚 Documentation
-
-For deep dives into the architecture, model design, and deployment strategies, refer to our comprehensive documentation:
-
-| Document | Description |
-|---|---|
-| [`docs/SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md) | Complete system architecture, API contract, and deployment topology. |
-| [`docs/TRAINING_ARCHITECTURE.md`](docs/TRAINING_ARCHITECTURE.md) | ML model design, encoder specs, and Google Colab training workflow. |
-| [`docs/MIGRATION_PLAN.md`](docs/MIGRATION_PLAN.md) | Legacy migration notes from early prototypes. |
-
----
-
-## 🐳 Deployment
-
-Affectra AI is fully configured for modern cloud deployment:
-- **Backend (Render):** A complete Dockerfile and `render.yaml` are provided in the repository root for one-click deployment to Render.
-- **Frontend (Vercel):** The React SPA is pre-configured with a `vercel.json` routing configuration for seamless Vercel hosting.
-
----
-
-## 📄 License
-
-This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
-
-<br>
 
 <div align="center">
   <i>"More Understanding. A Kinder Tomorrow."</i>
