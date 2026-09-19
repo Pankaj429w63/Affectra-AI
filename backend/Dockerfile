@@ -27,9 +27,10 @@ COPY backend/ /app/backend/
 COPY training/src/ /app/training/src/
 COPY rag/ /app/rag/
 COPY models/affectra_multimodal/ /app/models/affectra_multimodal/
+COPY scripts/ /app/scripts/
 
 # Expose port
 EXPOSE 8000
 
-# Start FastAPI server
-CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Download required binary artifacts from HF Hub, then start FastAPI server
+CMD ["bash", "-c", "python scripts/download_artifacts.py && uvicorn backend.app.main:app --host 0.0.0.0 --port 8000"]
