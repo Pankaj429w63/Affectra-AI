@@ -42,6 +42,7 @@ checkpoints/
 *.ckpt
 training_outputs/
 scripts/
+!scripts/download_artifacts.py
 
 # Frontend (Not needed in backend container)
 frontend/
