@@ -1,0 +1,56 @@
+# Git
+.git
+.gitignore
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Python caches and environments
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Testing and Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Datasets and raw data (MUST NOT BE INCLUDED)
+data/
+datasets/
+*.mp4
+*.avi
+*.mov
+*.wav
+
+# Training outputs and intermediate caches
+runs/
+outputs/
+lightning_logs/
+wandb/
+checkpoints/
+*.ckpt
+training_outputs/
+scripts/
+
+# Frontend (Not needed in backend container)
+frontend/
+
+# Documentation
+docs/
+
+# Local IDEs
+.idea/
+.vscode/
+.claude/
+.gemini/

@@ -46,20 +46,20 @@ except (ImportError, TypeError):
         return GradScaler()
 
 from training.src.config import (
-    ALPHA_EMOTION,
+    EMOTION_LOSS_WEIGHT,
     BATCH_SIZE,
-    BETA_SENTIMENT,
+    SENTIMENT_LOSS_WEIGHT,
     DEFAULT_CHECKPOINT_DIR,
     DEFAULT_LOG_DIR,
     EARLY_STOPPING_PATIENCE,
     LEARNING_RATE,
-    LR_SCHEDULER_FACTOR,
-    LR_SCHEDULER_PATIENCE,
+    SCHEDULER_FACTOR,
+    SCHEDULER_PATIENCE,
     MAX_EPOCHS,
     RANDOM_SEED,
     WEIGHT_DECAY,
 )
-from training.src.evaluate import evaluate
+from training.src.evaluate import evaluate, compute_metrics
 from training.src.utils import (
     format_metrics,
     get_logger,
@@ -169,6 +169,11 @@ def train_one_epoch(
     total_sent_loss = 0.0
     n_batches       = 0
 
+    all_emo_preds = []
+    all_emo_labels = []
+    all_sent_preds = []
+    all_sent_labels = []
+
     for batch in dataloader:
         text_feat      = batch["text_feat"].to(device)
         audio_feat     = batch["audio_feat"].to(device)
@@ -212,16 +217,32 @@ def train_one_epoch(
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip)
             optimizer.step()
 
+        emo_preds = emo_logits.detach().argmax(dim=1).cpu().tolist()
+        sent_preds = sent_logits.detach().argmax(dim=1).cpu().tolist()
+        all_emo_preds.extend(emo_preds)
+        all_emo_labels.extend(emotion_label.cpu().tolist())
+        all_sent_preds.extend(sent_preds)
+        all_sent_labels.extend(sentiment_label.cpu().tolist())
+
         total_loss      += loss.item()
         total_emo_loss  += emo_loss.item()
         total_sent_loss += sent_loss.item()
         n_batches       += 1
 
     n_batches = max(n_batches, 1)
+    
+    # Compute full metrics on training data
+    train_metrics = compute_metrics(
+        all_emo_preds, all_emo_labels,
+        all_sent_preds, all_sent_labels,
+        split="train"
+    )
+    
     return {
         "loss":           total_loss / n_batches,
         "emotion_loss":   total_emo_loss / n_batches,
         "sentiment_loss": total_sent_loss / n_batches,
+        "metrics":        train_metrics,
     }
 
 
@@ -236,8 +257,8 @@ def train(
     emotion_criterion: nn.Module,
     sentiment_criterion: nn.Module,
     device: torch.device,
-    alpha: float = ALPHA_EMOTION,
-    beta: float = BETA_SENTIMENT,
+    alpha: float = EMOTION_LOSS_WEIGHT,
+    beta: float = SENTIMENT_LOSS_WEIGHT,
     max_epochs: int = MAX_EPOCHS,
     learning_rate: float = LEARNING_RATE,
     weight_decay: float = WEIGHT_DECAY,
@@ -282,8 +303,8 @@ def train(
     scheduler = ReduceLROnPlateau(
         optimizer,
         mode="max",
-        factor=LR_SCHEDULER_FACTOR,
-        patience=LR_SCHEDULER_PATIENCE,
+        factor=SCHEDULER_FACTOR,
+        patience=SCHEDULER_PATIENCE,
     )
 
     # ── Mixed Precision Scaler ─────────────────────────────────────────────
@@ -361,14 +382,22 @@ def train(
         elapsed = time.time() - epoch_start
         current_lr = new_lr
 
+        train_wf1 = train_metrics["metrics"]["emotion"]["weighted_f1"]
+        train_mf1 = train_metrics["metrics"]["emotion"]["macro_f1"]
+        train_sent_wf1 = train_metrics["metrics"]["sentiment"]["weighted_f1"]
+
         epoch_summary = {
             "epoch": epoch + 1,
             "train_loss": round(train_metrics["loss"], 4),
             "train_emotion_loss": round(train_metrics["emotion_loss"], 4),
             "train_sentiment_loss": round(train_metrics["sentiment_loss"], 4),
+            "train_emotion_weighted_f1": round(train_wf1, 4),
+            "train_emotion_macro_f1": round(train_mf1, 4),
+            "train_sentiment_weighted_f1": round(train_sent_wf1, 4),
             "dev_emotion_weighted_f1": round(dev_wf1, 4),
             "dev_emotion_macro_f1": round(dev_metrics["emotion"]["macro_f1"], 4),
             "dev_sentiment_weighted_f1": round(dev_metrics["sentiment"]["weighted_f1"], 4),
+            "generalization_gap_wf1": round(train_wf1 - dev_wf1, 4),
             "learning_rate": current_lr,
             "elapsed_seconds": round(elapsed, 1),
         }
@@ -377,7 +406,9 @@ def train(
         logger.info(
             f"Epoch {epoch + 1:3d}/{max_epochs} | "
             f"loss={train_metrics['loss']:.4f} | "
+            f"train_emo_wF1={train_wf1:.4f} | "
             f"dev_emo_wF1={dev_wf1:.4f} | "
+            f"gap={train_wf1 - dev_wf1:+.4f} | "
             f"lr={current_lr:.2e} | "
             f"time={elapsed:.0f}s"
         )
@@ -462,7 +493,8 @@ def run_full_training(
     from training.src.fusion_model import build_model, build_weighted_loss
     from training.src.utils import get_device
 
-    device = get_device()
+    # Force CPU for controlled experiments
+    device = torch.device("cpu")
     cache_dir = cache_dir or DEFAULT_CACHE_DIR
     checkpoint_dir = checkpoint_dir or DEFAULT_CHECKPOINT_DIR
     output_dir = output_dir or DEFAULT_OUTPUT_DIR
@@ -474,6 +506,7 @@ def run_full_training(
     # ── 1. Locate annotation CSVs ─────────────────────────────────────────
     # Search common candidate locations
     candidates = [
+        os.path.join("data", "MELD", "annotations"),
         os.path.join("data", "meld_csv"),
         os.path.join("meld_data", "MELD.Raw"),
         "/content/meld_data/MELD.Raw",
@@ -526,6 +559,7 @@ def run_full_training(
     test_ds  = MELDCachedDataset(test_df, test_text, test_audio, test_video)
 
     pin_mem = (device.type == "cuda")
+
     train_loader = build_dataloader(train_ds, batch_size=batch_size, shuffle=True, pin_memory=pin_mem)
     dev_loader   = build_dataloader(dev_ds, batch_size=batch_size, shuffle=False, pin_memory=pin_mem)
     test_loader  = build_dataloader(test_ds, batch_size=batch_size, shuffle=False, pin_memory=pin_mem)

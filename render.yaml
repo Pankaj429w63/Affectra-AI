@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: affectra-api
+    env: docker
+    dockerContext: .
+    dockerfilePath: backend/Dockerfile
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: API_HOST
+        value: 0.0.0.0
+      - key: API_PORT
+        value: 8000
+      - key: MODEL_DIR
+        value: models/affectra_multimodal/
+      - key: MODEL_CHECKPOINT
+        value: model_state.pt
+      - key: API_SECRET_KEY
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: "https://affectra-frontend.vercel.app" # User must replace with actual frontend URL
+      - key: LLM_PROVIDER
+        value: mock
+      - key: RAG_ENABLED
+        value: "true"

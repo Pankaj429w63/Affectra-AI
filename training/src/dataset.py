@@ -242,6 +242,7 @@ def build_dataloader(
     shuffle: bool = True,
     num_workers: Optional[int] = None,
     pin_memory: Optional[bool] = None,
+    sampler: Optional[torch.utils.data.Sampler] = None,
 ) -> DataLoader:
     """
     Create a PyTorch DataLoader optimized for cached tensors.
@@ -260,6 +261,7 @@ def build_dataloader(
         shuffle=shuffle,
         num_workers=num_workers,
         pin_memory=pin_memory,
+        sampler=sampler,
         drop_last=False,
     )
 

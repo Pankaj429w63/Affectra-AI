@@ -195,3 +195,6 @@ Thumbs.db
 .abstra/
 .cursorignore
 .cursorindexingignore
+# RAG FAISS Index
+rag/vectorstore/data/
+*.faiss

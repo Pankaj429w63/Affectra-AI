@@ -1,28 +1,32 @@
 {
-  "model_name": "GatedMultimodalFusion",
-  "version": "1.0",
-  "input_dim": 768,
-  "fusion_dim": 256,
-  "num_emotions": 7,
-  "num_sentiments": 3,
-  "dropout": 0.2,
-  "modality_dropout": 0.15,
-  "text_encoder": "distilroberta-base",
-  "audio_encoder": "facebook/wav2vec2-base",
-  "video_encoder": "google/vit-base-patch16-224",
-  "frames_per_clip": 8,
-  "max_text_length": 128,
-  "audio_sample_rate": 16000,
-  "training": {
-    "learning_rate": 0.0002,
-    "weight_decay": 0.01,
-    "batch_size": 64,
-    "max_epochs": 30,
-    "early_stopping_patience": 7,
-    "alpha_emotion": 0.6,
-    "beta_sentiment": 0.4,
-    "label_smoothing": 0.05,
-    "class_weight_power": 0.5,
-    "random_seed": 42
-  }
+    "model_name": "AffectraMultimodal",
+    "experiment": "Experiment 2",
+    "fusion_dim": 512,
+    "text_feature_dim": 768,
+    "audio_feature_dim": 768,
+    "video_feature_dim": 768,
+    "num_emotions": 7,
+    "num_sentiments": 3,
+    "emotion_labels": [
+        "anger",
+        "disgust",
+        "fear",
+        "joy",
+        "neutral",
+        "sadness",
+        "surprise"
+    ],
+    "sentiment_labels": [
+        "positive",
+        "negative",
+        "neutral"
+    ],
+    "checkpoint_source": "data/exp2_checkpoints/checkpoint_best.pt",
+    "best_epoch": 19,
+    "test_emotion_accuracy": 0.5529,
+    "test_emotion_weighted_f1": 0.5603,
+    "test_emotion_macro_f1": 0.3701,
+    "test_sentiment_accuracy": 0.6716,
+    "test_sentiment_weighted_f1": 0.6701,
+    "test_sentiment_macro_f1": 0.6416
 }

@@ -134,18 +134,23 @@ class GatedMultimodalFusion(nn.Module):
         self.fusion_dropout = nn.Dropout(dropout)
 
         # ── Task Heads with Bottleneck MLP ────────────────────────────────────
-        head_hidden = fusion_dim // 2
         self.emotion_head = nn.Sequential(
-            nn.Linear(fusion_dim, head_hidden),
+            nn.Linear(fusion_dim, 256),
             nn.GELU(),
             nn.Dropout(dropout),
-            nn.Linear(head_hidden, num_emotions),
+            nn.Linear(256, 128),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(128, num_emotions),
         )
         self.sentiment_head = nn.Sequential(
-            nn.Linear(fusion_dim, head_hidden),
+            nn.Linear(fusion_dim, 256),
             nn.GELU(),
             nn.Dropout(dropout),
-            nn.Linear(head_hidden, num_sentiments),
+            nn.Linear(256, 128),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(128, num_sentiments),
         )
 
         self._init_weights()
@@ -308,9 +313,9 @@ def build_weighted_loss(
     emotion_counts: dict,
     sentiment_counts: dict,
     device: torch.device,
-    alpha: float = 0.6,
-    beta: float = 0.4,
-    power: float = 0.5,
+    emotion_weight: float = 0.6,
+    sentiment_weight: float = 0.4,
+    power: float = 0.75,
     label_smoothing: float = 0.05,
 ):
     """
@@ -353,7 +358,7 @@ def build_weighted_loss(
     logger.info(f"Emotion class weights:   {[round(w, 3) for w in emotion_weights.cpu().tolist()]}")
     logger.info(f"Sentiment class weights: {[round(w, 3) for w in sentiment_weights.cpu().tolist()]}")
 
-    return emotion_criterion, sentiment_criterion, alpha, beta
+    return emotion_criterion, sentiment_criterion, emotion_weight, sentiment_weight
 
 
 if __name__ == "__main__":

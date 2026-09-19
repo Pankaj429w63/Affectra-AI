@@ -116,7 +116,7 @@ VIDEO_ENCODER_NAME: str = "google/vit-base-patch16-224"
 TEXT_FEATURE_DIM: int = 768    # DistilRoBERTa hidden size
 AUDIO_FEATURE_DIM: int = 768   # Wav2Vec2-base hidden size
 VIDEO_FEATURE_DIM: int = 768   # ViT-base hidden size
-FUSION_DIM: int = 256          # Projected fusion dimension
+FUSION_DIM: int = 512          # Projected fusion dimension
 
 # ---------------------------------------------------------------------------
 # Encoder Preprocessing Parameters
@@ -130,26 +130,26 @@ VIDEO_FRAMES_PER_CLIP: int = 8      # Uniformly sampled frames per video
 # Fusion Model Hyperparameters
 # ---------------------------------------------------------------------------
 
-DROPOUT: float = 0.2
-MODALITY_DROPOUT: float = 0.15      # Probability of dropping a modality during training to prevent text-dominance
+DROPOUT: float = 0.30
+MODALITY_DROPOUT: float = 0.05      # Probability of dropping a modality during training to prevent text-dominance
 
 # ---------------------------------------------------------------------------
 # Training Hyperparameters
 # ---------------------------------------------------------------------------
 
-LEARNING_RATE: float = 2e-4
-WEIGHT_DECAY: float = 0.01
+LEARNING_RATE: float = 7.5e-5
+WEIGHT_DECAY: float = 0.02
 BATCH_SIZE: int = 64            # Reduce to 32 if you see CUDA OOM errors
 MAX_EPOCHS: int = 30
-EARLY_STOPPING_PATIENCE: int = 7
-LR_SCHEDULER_FACTOR: float = 0.5
-LR_SCHEDULER_PATIENCE: int = 3
-LABEL_SMOOTHING: float = 0.05       # Prevents overconfidence on subjective emotion annotations
-CLASS_WEIGHT_POWER: float = 0.5    # Square-root smoothed inverse frequency to balance gradient stability & recall
+EARLY_STOPPING_PATIENCE: int = 5
+SCHEDULER_FACTOR: float = 0.5
+SCHEDULER_PATIENCE: int = 3
+LABEL_SMOOTHING: float = 0.08       # Prevents overconfidence on subjective emotion annotations
+CLASS_WEIGHT_POWER: float = 1.0    # Square-root smoothed inverse frequency to balance gradient stability & recall
 
 # Multi-task loss weights (must be positive; do not need to sum to 1)
-ALPHA_EMOTION: float = 0.6      # Weight for emotion classification loss
-BETA_SENTIMENT: float = 0.4     # Weight for sentiment classification loss
+EMOTION_LOSS_WEIGHT: float = 0.6      # Weight for emotion classification loss
+SENTIMENT_LOSS_WEIGHT: float = 0.4     # Weight for sentiment classification loss
 
 RANDOM_SEED: int = 42
 
@@ -277,8 +277,8 @@ def get_model_config() -> dict:
             "batch_size": BATCH_SIZE,
             "max_epochs": MAX_EPOCHS,
             "early_stopping_patience": EARLY_STOPPING_PATIENCE,
-            "alpha_emotion": ALPHA_EMOTION,
-            "beta_sentiment": BETA_SENTIMENT,
+            "emotion_loss_weight": EMOTION_LOSS_WEIGHT,
+            "sentiment_loss_weight": SENTIMENT_LOSS_WEIGHT,
             "label_smoothing": LABEL_SMOOTHING,
             "class_weight_power": CLASS_WEIGHT_POWER,
             "random_seed": RANDOM_SEED,
