@@ -14,8 +14,8 @@ def main():
     # We expect the user to upload these three files directly to the root of their HF repo.
     files_to_download = {
         "model.pt": "models/affectra_multimodal/model.pt",
-        "index.faiss": "rag/vectorstore/data/index.faiss",
-        "metadata.json": "rag/vectorstore/data/metadata.json"
+        "index.faiss": "data/rag_vectorstore/index.faiss",
+        "metadata.json": "data/rag_vectorstore/metadata.json"
     }
     
     if not repo_id:
